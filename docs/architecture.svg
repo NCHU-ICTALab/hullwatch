@@ -1,0 +1,92 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 640" font-family="'Noto Sans TC','Inter',sans-serif">
+  <defs>
+    <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0L10 5L0 10z" fill="#5d6b7b"/>
+    </marker>
+    <marker id="arg" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0L10 5L0 10z" fill="#1aa77a"/>
+    </marker>
+  </defs>
+  <rect width="1200" height="640" fill="#0b131d"/>
+  <text x="40" y="48" fill="#e9eef4" font-size="24" font-weight="700">HullWatch 系統架構</text>
+  <text x="40" y="72" fill="#93a1b1" font-size="13">陽明海運船體能效監控與清洗決策 · AWS 百工百業瘋 AI</text>
+
+  <!-- ============ 資料層 ============ -->
+  <rect x="40" y="100" width="240" height="180" rx="12" fill="rgba(56,189,248,.07)" stroke="rgba(56,189,248,.35)"/>
+  <text x="60" y="128" fill="#38BDF8" font-size="13" font-weight="600">資料來源</text>
+  <rect x="60" y="142" width="200" height="38" rx="8" fill="#0e1a26" stroke="#26364a"/>
+  <text x="70" y="166" fill="#e9eef4" font-size="13">每日正午報表（15 艘 × 5 年）</text>
+  <rect x="60" y="188" width="200" height="38" rx="8" fill="#0e1a26" stroke="#26364a"/>
+  <text x="70" y="212" fill="#e9eef4" font-size="13">水下報告（檢查/清潔/拋光）</text>
+  <rect x="60" y="234" width="200" height="34" rx="8" fill="#0e1a26" stroke="#26364a"/>
+  <text x="70" y="256" fill="#93a1b1" font-size="12">Amazon S3（資料湖）</text>
+
+  <!-- ============ ML 管線 ============ -->
+  <rect x="330" y="100" width="300" height="330" rx="12" fill="rgba(53,224,166,.06)" stroke="rgba(53,224,166,.35)"/>
+  <text x="350" y="128" fill="#35E0A6" font-size="13" font-weight="600">ML 管線（SageMaker / 容器）</text>
+  <rect x="350" y="142" width="260" height="36" rx="8" fill="#0e2018" stroke="#1d4234"/>
+  <text x="360" y="165" fill="#e9eef4" font-size="12.5">良好天氣篩選 + 水下事件對齊</text>
+  <rect x="350" y="186" width="260" height="36" rx="8" fill="#0e2018" stroke="#1d4234"/>
+  <text x="360" y="209" fill="#e9eef4" font-size="12.5">乾淨基準相對化特徵（Robust Scaling）</text>
+  <rect x="350" y="230" width="260" height="50" rx="8" fill="#0e2018" stroke="#35E0A6"/>
+  <text x="360" y="251" fill="#e9eef4" font-size="12.5" font-weight="600">乾淨基準模型：monotone XGBoost</text>
+  <text x="360" y="270" fill="#93a1b1" font-size="11.5">曲線反演 → Speed Loss ＋ 超額油耗</text>
+  <rect x="350" y="288" width="260" height="36" rx="8" fill="#0e2018" stroke="#1d4234"/>
+  <text x="360" y="311" fill="#e9eef4" font-size="12.5">肘點法分級 + Optuna（跨船穩定）</text>
+  <rect x="350" y="332" width="260" height="36" rx="8" fill="#0e2018" stroke="#1d4234"/>
+  <text x="360" y="355" fill="#e9eef4" font-size="12.5">結垢率外推 + 180 天清洗成本掃描</text>
+  <rect x="350" y="376" width="260" height="36" rx="8" fill="#0e2018" stroke="#1d4234" stroke-dasharray="4 3"/>
+  <text x="360" y="399" fill="#93a1b1" font-size="12.5">驗證：Leave-One-Ship-Out + 時間分塊</text>
+
+  <!-- ============ 服務層 ============ -->
+  <rect x="680" y="100" width="240" height="330" rx="12" fill="rgba(233,188,99,.06)" stroke="rgba(233,188,99,.35)"/>
+  <text x="700" y="128" fill="#E9BC63" font-size="13" font-weight="600">服務層（EC2 / ECS 容器）</text>
+  <rect x="700" y="142" width="200" height="44" rx="8" fill="#201a0e" stroke="#4a3f26"/>
+  <text x="710" y="161" fill="#e9eef4" font-size="12.5">FastAPI 單體</text>
+  <text x="710" y="178" fill="#93a1b1" font-size="11">fleet / ship / roi / advisor / inspect</text>
+  <rect x="700" y="194" width="200" height="58" rx="8" fill="#201a0e" stroke="#4a3f26"/>
+  <text x="710" y="213" fill="#e9eef4" font-size="12.5">AI 顧問（LangGraph 工具迴圈）</text>
+  <text x="710" y="230" fill="#93a1b1" font-size="11">唯讀工具：顧問數字＝儀表板數字</text>
+  <text x="710" y="245" fill="#93a1b1" font-size="11">scripted fallback（demo 保命）</text>
+  <rect x="700" y="260" width="200" height="40" rx="8" fill="#201a0e" stroke="#4a3f26"/>
+  <text x="710" y="278" fill="#e9eef4" font-size="12.5">水下照片判讀（視覺模型）</text>
+  <text x="710" y="293" fill="#93a1b1" font-size="11">照片 ↔ 數據交叉驗證</text>
+  <rect x="700" y="308" width="200" height="40" rx="8" fill="#201a0e" stroke="#4a3f26"/>
+  <text x="710" y="326" fill="#e9eef4" font-size="12.5">檢索層（可切換）</text>
+  <text x="710" y="341" fill="#93a1b1" font-size="11">Bedrock KB ↔ 本地 TF-IDF</text>
+  <rect x="700" y="356" width="200" height="56" rx="8" fill="#12100a" stroke="#4a3f26" stroke-dasharray="4 3"/>
+  <text x="710" y="375" fill="#E9BC63" font-size="12" font-weight="600">Amazon Bedrock（Claude）</text>
+  <text x="710" y="391" fill="#93a1b1" font-size="11">顧問推理 + 多模態判讀</text>
+  <text x="710" y="405" fill="#93a1b1" font-size="11">KB：ISO 19030 / 清洗經濟學</text>
+
+  <!-- ============ 前端 ============ -->
+  <rect x="970" y="100" width="190" height="330" rx="12" fill="rgba(240,100,140,.06)" stroke="rgba(240,100,140,.3)"/>
+  <text x="990" y="128" fill="#F0648C" font-size="13" font-weight="600">互動儀表板</text>
+  <g fill="#e9eef4" font-size="12.5">
+    <rect x="990" y="142" width="150" height="32" rx="8" fill="#1d1016" stroke="#42222e"/><text x="1000" y="163">船隊總覽</text>
+    <rect x="990" y="182" width="150" height="32" rx="8" fill="#1d1016" stroke="#42222e"/><text x="1000" y="203">單船 Speed Loss 趨勢</text>
+    <rect x="990" y="222" width="150" height="32" rx="8" fill="#1d1016" stroke="#42222e"/><text x="1000" y="243">經濟決策 What-if</text>
+    <rect x="990" y="262" width="150" height="32" rx="8" fill="#1d1016" stroke="#42222e"/><text x="1000" y="283">AI 顧問（白話問答）</text>
+    <rect x="990" y="302" width="150" height="32" rx="8" fill="#1d1016" stroke="#42222e"/><text x="1000" y="323">水下判讀</text>
+  </g>
+  <text x="990" y="360" fill="#93a1b1" font-size="11">單檔 HTML · 同源零 CORS</text>
+  <text x="990" y="376" fill="#93a1b1" font-size="11">LIVE ↔ MOCK 一鍵切換</text>
+
+  <!-- ============ 箭頭 ============ -->
+  <line x1="280" y1="190" x2="330" y2="190" stroke="#5d6b7b" stroke-width="1.6" marker-end="url(#ar)"/>
+  <line x1="630" y1="265" x2="680" y2="265" stroke="#1aa77a" stroke-width="1.8" marker-end="url(#arg)"/>
+  <line x1="920" y1="265" x2="970" y2="265" stroke="#5d6b7b" stroke-width="1.6" marker-end="url(#ar)"/>
+  <text x="638" y="255" fill="#1aa77a" font-size="10.5">artifacts</text>
+
+  <!-- ============ 底部：方法論出處 ============ -->
+  <rect x="40" y="470" width="1120" height="130" rx="12" fill="rgba(255,255,255,.03)" stroke="rgba(255,255,255,.1)"/>
+  <text x="60" y="500" fill="#93a1b1" font-size="13" font-weight="600">方法論平移：工業刀具磨耗 PHM →（改編）→ 船體髒污監控</text>
+  <g fill="#5d6b7b" font-size="12">
+    <text x="60" y="528">刀次時間軸 → 距上次清洗天數</text>
+    <text x="60" y="550">前 10 刀基準 Robust Scaling → 清洗後乾淨基準相對化</text>
+    <text x="60" y="572">高頻訊號 38 特徵 → 航海物理量（立方定律 / DailyFOC）</text>
+    <text x="620" y="528">肘點法磨耗分級 → 肘點法髒污分級（+膝點強度檢查）</text>
+    <text x="620" y="550">Leave-One-Tool-Out → Leave-One-Ship-Out + 時間分塊</text>
+    <text x="620" y="572">LLM 診斷報告藍圖 → Bedrock AI 顧問（工具迴圈 + RAG）</text>
+  </g>
+</svg>
