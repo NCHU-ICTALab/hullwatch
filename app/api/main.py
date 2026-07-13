@@ -95,6 +95,8 @@ async def inspect(file: UploadFile = File(...), ship_id: str = Form("")):
     if fmt == "jpg":
         fmt = "jpeg"
     content = await file.read()
+    if len(content) > 8 * 1024 * 1024:
+        raise HTTPException(413, "影像請小於 8MB")
     return inspect_mod.analyze_hull_image(content, image_format=fmt, data_speed_loss_pct=data_sl)
 
 

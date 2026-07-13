@@ -21,7 +21,7 @@ HISTORY_WEEKS = 78  # 圖表顯示最近 18 個月
 def _status(sl: float, days_to_thresh: int | None) -> str:
     if sl >= config.CLEANING_THRESHOLD_PCT or days_to_thresh == 0:
         return "action"
-    if days_to_thresh is not None and days_to_thresh <= 60:
+    if days_to_thresh is not None and days_to_thresh <= config.WATCH_WINDOW_DAYS:
         return "watch"
     return "ok"
 
@@ -101,17 +101,22 @@ class FleetService:
         dates = weekly[schema.REPORT_DATE]
         growth_w = float(r.growth_pp_per_day) * 7
         last_sl = float(weekly["speed_loss_smooth"].iloc[-1]) if len(weekly) else 0.0
-        last_date = dates.iloc[-1] if len(weekly) else pd.Timestamp.now()
+        last_date = dates.iloc[-1] if len(weekly) else pd.Timestamp("2000-01-01")
+        # 預測帶寬度以該船近 12 週實際波動（std）為底，隨外推距離放大（啟發式，非統計信賴區間）
+        resid_std = float(weekly["speed_loss_smooth"].tail(12).std()) if len(weekly) >= 4 else 0.5
+        resid_std = max(0.3, min(resid_std, 2.0))
         forecast = []
         for i in range(1, FORECAST_WEEKS + 1):
             mid = last_sl + growth_w * i
-            band = 0.4 + 0.09 * i
+            band = resid_std * (0.8 + 0.15 * i)
             forecast.append({
                 "date": (last_date + pd.Timedelta(weeks=i)).strftime("%Y-%m-%d"),
                 "mid": round(mid, 2), "lo": round(mid - band, 2), "hi": round(mid + band, 2),
             })
+        if len(weekly) == 0:
+            forecast = []
         ev = self.events[(self.events[schema.EVENT_SHIP_ID] == ship_id)
-                         & (self.events[schema.EVENT_DATE] >= dates.min())]
+                         & (self.events[schema.EVENT_DATE] >= (dates.min() if len(dates) else pd.Timestamp.max))]
         dtt = None if pd.isna(r.days_to_threshold) else int(r.days_to_threshold)
         status = _status(float(r.current_speed_loss_pct), dtt)
         return {

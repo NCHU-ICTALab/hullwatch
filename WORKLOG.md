@@ -30,11 +30,22 @@
 - ✅ 測試：**35 passed**
 - ✅ Dockerfile + start.sh + EC2 部署手冊 + README（含當天 runbook）
 
+- ✅ **兩軸 code review（Standards + Spec 平行子代理）＋修復**：
+  - 修：advisor/inspect 前端 XSS（innerHTML 未跳脫，agent 模式下可被 prompt injection 利用）→ esc() 全面套用，Playwright 注入測試確認不觸發
+  - 修：空序列 ship_detail/圖表 crash 防護；上傳 8MB 上限
+  - 修：預測帶從「憑空常數」改為以該船近 12 週實際波動為底的啟發式（並標註非統計信賴區間）
+  - 修：run/tuning 重複的資料準備段 → `prepare_features()` 共用；events.py searchsorted 重複段 → `_days_since_last()`
+  - 補：`app/llm/rag_eval.py`（檢索評估黃金集，hit@k/MRR，本地與 Bedrock KB 通用）— 補齊 ADR-0002 承諾
+  - 補：`run.py --loso` 旗標把 LOSO 寫進 summary.json
+  - ADR-0002 措辭修正：HITL/Path Jail 不搬（工具集全唯讀，Q8 決策）
+  - 記錄不修：mock 資料層與後端的經濟公式重複（MOCK 模式本來就是獨立快照）；CO₂ 統計屬合理加值（呼應命題 CII）
+- ✅ 測試：**37 passed**
+
 ### 進行中 / 待辦
 
-- 🔨 Docker build 本機驗證（Docker Desktop 剛啟動）
+- 🔨 Docker 映像重建（含修復）+ 容器煙霧測試
 - ⬜ Learner Lab EC2 部署演練（需較長時間 + 使用者在場，見「需確認」）
-- ⬜ code review + git commit
+- ⬜ git commit（review 修復）
 
 ### 比賽當天才能做（依賴當天資源）
 

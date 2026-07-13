@@ -34,7 +34,7 @@ def stability_objective(feat: pd.DataFrame, params: dict) -> float:
     """回傳 Mean + 0.5·Std 的跨船 RMSE（越小越好）。"""
     train, val = _time_split_baseline(feat)
     model = CleanBaselineModel(params)
-    model.fit(pd.concat([train]).assign(baseline_flag=True))
+    model.fit(train.assign(baseline_flag=True))
     rmses = []
     for _, grp in val.groupby(schema.SHIP_ID):
         if len(grp) < 5:
@@ -73,19 +73,10 @@ if __name__ == "__main__":
     import json
 
     from app import config
-    from app.pipeline.events import align_events
-    from app.pipeline.features import build_features, clean_reference_stats
-    from app.pipeline.run import load_raw
+    from app.pipeline.run import prepare_features
 
     ap = argparse.ArgumentParser()
     ap.add_argument("--trials", type=int, default=50)
     args = ap.parse_args()
-    noon_raw, events_raw, _ = load_raw(config.DATA_DIR / "raw")
-    noon = schema.apply_quality_filter(
-        schema.normalize_noon_reports(noon_raw),
-        config.GOOD_WEATHER_MAX_WIND, config.MIN_FULL_SPEED_HOURS)
-    events = events_raw.copy()
-    events[schema.EVENT_DATE] = pd.to_datetime(events[schema.EVENT_DATE])
-    aligned = align_events(noon, events, config.BASELINE_WINDOW_DAYS)
-    feat = build_features(aligned, clean_reference_stats(aligned))
+    feat, _, _, _ = prepare_features(config.DATA_DIR / "raw")
     print(json.dumps(tune(feat, n_trials=args.trials), indent=2))

@@ -39,12 +39,12 @@ def generate_and_save(raw_dir: Path, cfg: GeneratorConfig | None = None) -> None
     data["truth"].to_csv(raw_dir / "truth.csv", index=False)
 
 
-def run_pipeline(raw_dir: Path | None = None, artifact_dir: Path | None = None) -> dict:
-    """執行完整管線並輸出 artifacts。回傳 summary dict。"""
-    raw_dir = raw_dir or (config.DATA_DIR / "raw")
-    artifact_dir = artifact_dir or config.ARTIFACT_DIR
-    artifact_dir.mkdir(parents=True, exist_ok=True)
+def prepare_features(raw_dir: Path) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame | None]:
+    """raw → 正規化 → 篩選 → 事件對齊 → 相對化特徵。
 
+    Returns:
+        (feat, refs, events, truth)。tuning 與 run_pipeline 共用。
+    """
     noon_raw, events_raw, truth = load_raw(raw_dir)
     noon = schema.normalize_noon_reports(noon_raw)
     filtered = schema.apply_quality_filter(
@@ -57,6 +57,17 @@ def run_pipeline(raw_dir: Path | None = None, artifact_dir: Path | None = None) 
     if len(weak):
         print(f"[warn] 基準樣本不足的船（仍照常評分，但基準較不可靠）: {list(weak.index)}")
     feat = build_features(aligned, refs)
+    return feat, refs, events, truth
+
+
+def run_pipeline(raw_dir: Path | None = None, artifact_dir: Path | None = None,
+                 with_loso: bool = False) -> dict:
+    """執行完整管線並輸出 artifacts。回傳 summary dict。"""
+    raw_dir = raw_dir or (config.DATA_DIR / "raw")
+    artifact_dir = artifact_dir or config.ARTIFACT_DIR
+    artifact_dir.mkdir(parents=True, exist_ok=True)
+
+    feat, refs, events, truth = prepare_features(raw_dir)
 
     model = CleanBaselineModel().fit(feat)
     scored = smooth_speed_loss(model.score_rows(feat))
@@ -91,11 +102,20 @@ def run_pipeline(raw_dir: Path | None = None, artifact_dir: Path | None = None) 
         })
     fleet = pd.DataFrame(ships).sort_values("current_speed_loss_pct", ascending=False)
 
-    # 驗證指標（時間分塊；有 ground truth 才算得出來）
-    metrics = {}
+    # 驗證指標（時間分塊 + 可選 LOSO；有 ground truth 才算得出來）
+    metrics: dict = {}
     if truth is not None:
-        cutoff = str(noon[schema.REPORT_DATE].quantile(0.8).date())
+        cutoff = str(feat[schema.REPORT_DATE].quantile(0.8).date())
         metrics = time_blocked(feat, truth, cutoff=cutoff)
+        if with_loso:
+            from app.pipeline.validation import leave_one_ship_out
+
+            loso = leave_one_ship_out(feat, truth)
+            metrics["loso"] = {
+                "worst_mae_pp": round(float(loso["mae_pp"].max()), 3),
+                "mean_mae_pp": round(float(loso["mae_pp"].mean()), 3),
+                "worst_corr": round(float(loso["corr"].min()), 3),
+            }
 
     # 輸出
     model.save(artifact_dir / "baseline_model.json")
@@ -121,6 +141,7 @@ if __name__ == "__main__":
 
     ap = argparse.ArgumentParser()
     ap.add_argument("--synth", action="store_true", help="先產生合成資料再跑管線")
+    ap.add_argument("--loso", action="store_true", help="附帶 Leave-One-Ship-Out 驗證（較慢）")
     ap.add_argument("--seed", type=int, default=42)
     args = ap.parse_args()
     raw = config.DATA_DIR / "raw"
@@ -128,4 +149,4 @@ if __name__ == "__main__":
         print("[*] 產生合成資料 ...")
         generate_and_save(raw, GeneratorConfig(seed=args.seed))
     print("[*] 執行管線 ...")
-    print(json.dumps(run_pipeline(), indent=2, ensure_ascii=False))
+    print(json.dumps(run_pipeline(with_loso=args.loso), indent=2, ensure_ascii=False))

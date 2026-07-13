@@ -251,6 +251,7 @@ input[type=range]{accent-color:var(--accent);width:100%}
 <script>
 /* ================= 資料層：LIVE(fetch) / MOCK(內嵌快照) 同形狀 ================= */
 const fmt = n => Math.round(n).toLocaleString('en-US');
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const STATUS_ZH = {ok:'良好', watch:'留意', action:'待清洗'};
 const LEVEL_ZH = {low:'低', medium:'中', high:'高'};
 const EV_ZH = {cleaning:'水下清潔', propeller_polish:'螺槳拋光', inspection:'水下檢查', drydock:'塢修'};
@@ -417,6 +418,7 @@ function drawShipChart(d){
   const thr = d.current.threshold_pct;
   const pts = d.series.map((p,i)=>({i, v:p.speed_loss, date:p.date}));
   const n = pts.length;
+  if(!n){ document.getElementById('shipChart').innerHTML='<p class="cap">此船在篩選條件下無足夠資料可繪製趨勢。</p>'; return; }
   const fc = d.forecast.map((p,j)=>({i:n-1+j+1, ...p}));
   const total = n + fc.length;
   const maxY = Math.max(thr+1.5, ...pts.map(p=>p.v), ...fc.map(p=>p.hi))+0.5;
@@ -490,16 +492,16 @@ function renderAdvisorUI(){
 async function ask(q){
   const log=document.getElementById('chatlog');
   log.innerHTML = `
-    <div class="msg u"><div class="avatar av-u">你</div><div class="bubble">${q}</div></div>
+    <div class="msg u"><div class="avatar av-u">你</div><div class="bubble">${esc(q)}</div></div>
     <div class="msg"><div class="avatar av-a">AI</div><div class="bubble" style="color:var(--mute)">思考中…</div></div>`;
   try{
     const a = await DATA.advisor(q);
     document.getElementById('advisorMode').textContent = 'mode: '+a.mode;
     log.innerHTML = `
-      <div class="msg u"><div class="avatar av-u">你</div><div class="bubble">${q}</div></div>
+      <div class="msg u"><div class="avatar av-u">你</div><div class="bubble">${esc(q)}</div></div>
       <div class="msg"><div class="avatar av-a">AI</div><div style="flex:1">
-        <ul class="steps">${(a.steps||[]).map(s=>`<li>${s}</li>`).join('')}</ul>
-        <div class="bubble">${a.answer}<div class="cites">${(a.citations||[]).map(c=>`<span class="cite">▸ ${c}</span>`).join('')}</div></div>
+        <ul class="steps">${(a.steps||[]).map(s=>`<li>${esc(s)}</li>`).join('')}</ul>
+        <div class="bubble">${esc(a.answer)}<div class="cites">${(a.citations||[]).map(c=>`<span class="cite">▸ ${esc(c)}</span>`).join('')}</div></div>
       </div></div>`;
   }catch(e){
     log.querySelector('.msg:last-child .bubble').textContent = '顧問服務暫時無法回應：'+e;
@@ -526,14 +528,14 @@ async function doInspect(file){
   }
   try{
     const r = await API.inspect(file, shipId);
-    const lvlZh={light:'輕度附著', moderate:'中度附著', heavy:'重度附著'}[r.fouling_level]||r.fouling_level;
+    const lvlZh={light:'輕度附著', moderate:'中度附著', heavy:'重度附著'}[r.fouling_level]||esc(r.fouling_level);
     const badge={light:'b-ok', moderate:'b-watch', heavy:'b-action'}[r.fouling_level]||'b-watch';
     const cc=r.cross_check||{};
     document.getElementById('inspectResult').innerHTML=`
-      <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap"><span class="badge ${badge}">${lvlZh}</span><span class="chip">覆蓋率 ${r.coverage_pct}%</span><span class="chip">mode: ${r.mode}</span></div>
-      <p class="cap" style="margin-top:12px">${(r.organisms||[]).join('、')}。${r.notes||''}</p>
+      <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap"><span class="badge ${badge}">${lvlZh}</span><span class="chip">覆蓋率 ${esc(r.coverage_pct)}%</span><span class="chip">mode: ${esc(r.mode)}</span></div>
+      <p class="cap" style="margin-top:12px">${esc((r.organisms||[]).join('、'))}。${esc(r.notes||'')}</p>
       <div class="kv"><span class="kk">照片 ↔ 數據</span><span class="vv" style="color:${cc.consistent?'var(--accent)':'var(--alert)'}">${cc.consistent===null?'—':cc.consistent?'一致 match':'不一致 mismatch'}</span></div>
-      <p class="cap" style="margin-top:8px">${cc.detail||''}</p>`;
+      <p class="cap" style="margin-top:8px">${esc(cc.detail||'')}</p>`;
   }catch(e){
     document.getElementById('inspectResult').innerHTML='<p class="cap mt">判讀失敗：'+e+'</p>';
   }

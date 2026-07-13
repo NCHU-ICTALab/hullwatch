@@ -18,6 +18,15 @@ import pandas as pd
 from app import schema
 
 
+def _days_since_last(dates: pd.Series, event_dates: pd.Series) -> tuple[np.ndarray, np.ndarray]:
+    """對每個日期求「距其之前最近一次事件」的天數與事件索引（無事件時索引 < 0）。"""
+    arr = event_dates.to_numpy()
+    idx = np.searchsorted(arr, dates.to_numpy(), side="right") - 1
+    last = np.where(idx >= 0, arr[np.clip(idx, 0, None)], np.datetime64("NaT"))
+    days = (dates.to_numpy() - last) / np.timedelta64(1, "D")
+    return days, idx
+
+
 def align_events(noon: pd.DataFrame, events: pd.DataFrame, baseline_window_days: int) -> pd.DataFrame:
     """將事件表對齊到 canonical 正午報表。
 
@@ -44,21 +53,14 @@ def align_events(noon: pd.DataFrame, events: pd.DataFrame, baseline_window_days:
         dates = grp[schema.REPORT_DATE]
         start = dates.iloc[0]
 
-        # 距上次重置：searchsorted 找每個日期之前最近的 reset
-        reset_arr = resets.to_numpy()
-        idx = np.searchsorted(reset_arr, dates.to_numpy(), side="right") - 1
-        last_reset = np.where(idx >= 0, reset_arr[np.clip(idx, 0, None)], np.datetime64("NaT"))
-        dsc = (dates.to_numpy() - last_reset) / np.timedelta64(1, "D")
+        dsc, idx = _days_since_last(dates, resets)
         no_reset_yet = idx < 0
         dsc_fallback = (dates.to_numpy() - np.datetime64(start)) / np.timedelta64(1, "D")
         grp["days_since_clean"] = np.where(no_reset_yet, dsc_fallback, dsc)
         grp["baseline_flag"] = (~no_reset_yet) & (grp["days_since_clean"] <= baseline_window_days)
         grp["baseline_id"] = np.where(no_reset_yet, -1, idx)
 
-        polish_arr = polishes.to_numpy()
-        pidx = np.searchsorted(polish_arr, dates.to_numpy(), side="right") - 1
-        last_polish = np.where(pidx >= 0, polish_arr[np.clip(pidx, 0, None)], np.datetime64("NaT"))
-        dsp = (dates.to_numpy() - last_polish) / np.timedelta64(1, "D")
+        dsp, pidx = _days_since_last(dates, polishes)
         grp["days_since_polish"] = np.where(pidx < 0, np.nan, dsp)
 
         out_parts.append(grp)

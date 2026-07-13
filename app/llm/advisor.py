@@ -59,27 +59,27 @@ class Advisor:
         from langchain_core.tools import tool
         from langgraph.prebuilt import create_react_agent
 
-        service = self
+        advisor = self
 
         @tool
         def get_fleet_status() -> str:
             """取得全船隊當前狀態：每艘船的 Speed Loss、髒污等級、距上次清洗天數、每日超額成本。"""
-            return json.dumps(service._tool_fleet(), ensure_ascii=False, default=str)
+            return json.dumps(advisor._tool_fleet(), ensure_ascii=False, default=str)
 
         @tool
         def get_ship_detail(ship_id: str) -> str:
             """取得單船詳情（ship_id 如 YM-9001）：當前指標、水下事件史、清洗建議。"""
-            return json.dumps(service._tool_ship(ship_id), ensure_ascii=False, default=str)
+            return json.dumps(advisor._tool_ship(ship_id), ensure_ascii=False, default=str)
 
         @tool
         def compute_roi(ship_id: str = "") -> str:
             """計算清洗經濟效益：最佳清洗日、回本天數、每日超額成本。ship_id 留空看全隊。"""
-            return json.dumps(service._tool_roi(ship_id or None), ensure_ascii=False, default=str)
+            return json.dumps(advisor._tool_roi(ship_id or None), ensure_ascii=False, default=str)
 
         @tool
         def retrieve_knowledge(query: str) -> str:
             """查詢知識庫（ISO 19030 方法論、清洗成本行情、命題背景）。"""
-            return json.dumps(service._tool_kb(query), ensure_ascii=False, default=str)
+            return json.dumps(advisor._tool_kb(query), ensure_ascii=False, default=str)
 
         return create_react_agent(
             self.chat_model,
