@@ -18,7 +18,7 @@ from pathlib import Path
 import boto3
 
 REGION = os.environ.get("HW_DEPLOY_REGION", "us-east-1")
-REPO_URL = "https://github.com/ChienIKao/hullwatch.git"
+REPO_URL = "https://github.com/NCHU-ICTALab/hullwatch.git"
 SG_NAME = "hullwatch-demo"
 TAG_NAME = "hullwatch-demo"
 INSTANCE_TYPE = "t3.medium"
