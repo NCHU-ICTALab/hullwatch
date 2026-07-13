@@ -9,7 +9,7 @@ AWS 百工百業瘋 AI 黑客松（陽明海運命題）參賽作品。
 
 ## 系統架構
 
-```
+```text
 noon_reports.csv ─┐
 events.csv ───────┤  schema.py（欄位對應，當天唯一要改的檔）
                   ▼
@@ -54,6 +54,10 @@ Docker：`docker build -t hullwatch . && docker run -p 8000:8000 hullwatch`
 5. Bedrock 環境變數：`HW_LLM_PROVIDER=bedrock`、`HW_BEDROCK_MODEL=<模型ID>`、
    `HW_BEDROCK_REGION=<區域>`；KB 可用時 `HW_RETRIEVER=bedrock_kb HW_BEDROCK_KB_ID=<id>`。
 6. 「高髒污樣本稀少」時再評估 TabDDPM 擴增（P2，管線掛載點在特徵層之後）。
+7. **交件結果檔**（繳交項目 7）：`python -m app.pipeline.export`
+   → `data/submission/預測結果_HullWatch.xlsx`（每船摘要、每日明細、方法與驗證三張表）。
+8. 水下報告 PDF → `python -m app.pipeline.report_parser <pdf> --out data/raw/events.csv`
+   （先人工過目輸出再跑管線；掃描檔改走 Bedrock 多模態）。
 
 ## 已知限制（誠實申報 = 評審「未盡之處」）
 

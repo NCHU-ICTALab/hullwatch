@@ -72,6 +72,17 @@
 - 水下報告 PDF 解析器（下游 events.csv schema 已固定）
 - TabDDPM 擴增（P2：先看真資料類別分佈）
 
+### 交件清單（7/16 14:30 前，對照命題「提案繳交內容」）
+
+1. 團隊基本資料 —（隊友/簡報）
+2. 提案大綱 —（隊友/簡報）
+3. GitHub 網站連結 — ✅ <https://github.com/NCHU-ICTALab/hullwatch>
+4. 完整提案簡報 —（隊友；架構圖 `docs/architecture.svg` 已備）
+5. Live Demo 網址 — 當天以 `scripts/launch_demo_ec2.py` 部署後取得
+6. Demo 錄製影片 — 7/15 錄（live demo 掛掉時的保險）
+7. **預測完的結果檔案** — ✅ 輸出器已備：`python -m app.pipeline.export`
+   → `預測結果_HullWatch.xlsx`（每船摘要與清洗建議 / 每日預測明細 / 方法與驗證）
+
 ### 需要使用者確認（集中）
 
 - 見對話末尾回報

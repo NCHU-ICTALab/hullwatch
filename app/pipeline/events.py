@@ -21,6 +21,9 @@ from app import schema
 def _days_since_last(dates: pd.Series, event_dates: pd.Series) -> tuple[np.ndarray, np.ndarray]:
     """對每個日期求「距其之前最近一次事件」的天數與事件索引（無事件時索引 < 0）。"""
     arr = event_dates.to_numpy()
+    if len(arr) == 0:  # 該船完全沒有此類事件
+        n = len(dates)
+        return np.full(n, np.nan), np.full(n, -1)
     idx = np.searchsorted(arr, dates.to_numpy(), side="right") - 1
     last = np.where(idx >= 0, arr[np.clip(idx, 0, None)], np.datetime64("NaT"))
     days = (dates.to_numpy() - last) / np.timedelta64(1, "D")
