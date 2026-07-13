@@ -1,5 +1,9 @@
 # EC2 部署手冊（Learner Lab 演練 / 比賽正式環境通用）
 
+> **捷徑**：`python scripts/launch_demo_ec2.py` 一鍵完成本手冊 1–2 節
+> （安全群組 + 開機 + user-data 自動部署；`--status` 查 IP、`--teardown` 收攤）。
+> 以下手動步驟供腳本不可用或需客製時參考。
+
 ## 0. 前置
 
 - Learner Lab：Start Lab 後從 AWS Details 取 CLI 憑證（每 session 輪換，別寫死）。
