@@ -41,11 +41,16 @@
   - 記錄不修：mock 資料層與後端的經濟公式重複（MOCK 模式本來就是獨立快照）；CO₂ 統計屬合理加值（呼應命題 CII）
 - ✅ 測試：**37 passed**
 
-### 進行中 / 待辦
-
-- 🔨 Docker 映像重建（含修復）+ 容器煙霧測試
-- ⬜ Learner Lab EC2 部署演練（需較長時間 + 使用者在場，見「需確認」）
-- ⬜ git commit（review 修復）
+- ✅ Docker 映像重建 + 容器煙霧測試（啟動自跑管線 → 30 秒內服務）
+- ✅ 推上 GitHub：`NCHU-ICTALab/hullwatch`（從個人帳號轉移到組織後改 public）
+- ✅ **EC2 部署演練成功**（Learner Lab us-east-1，`scripts/launch_demo_ec2.py` 一鍵：
+  安全群組 8000 + AL2023 + user-data 自動 clone/build/run）。
+  公網完整驗證：7 條檢查全 PASS + Playwright 零 JS 錯誤。
+  - 💡 **踩坑記錄（當天別再犯）**：repo 為 private 時 EC2 匿名 clone 會靜默失敗，
+    症狀是 console 顯示 `open Dockerfile: no such file or directory`。
+    先 `curl -s -o /dev/null -w "%{http_code}" <repo url>` 確認 200 再開機器。
+  - Learner Lab session 結束機器會停止、重啟後公網 IP 會變；demo 前需重跑
+    `--status` 拿新 IP，或當天在比賽環境直接 `launch_demo_ec2.py`。
 
 ### 比賽當天才能做（依賴當天資源）
 
