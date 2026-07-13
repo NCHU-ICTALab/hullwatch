@@ -91,6 +91,23 @@ class CleanBaselineModel:
         out["speed_loss_pct"] = raw_sl.clip(-10, 35)
         return out
 
+    def contributions(self, feat: pd.DataFrame) -> pd.DataFrame:
+        """每列的 TreeSHAP 特徵貢獻（f_rel 空間）。
+
+        用 XGBoost 內建 pred_contribs（= TreeSHAP），回傳各特徵貢獻與 bias，
+        滿足 bias + Σ貢獻 = predict_f_rel。供「油耗歸因」瀑布：
+        實測油耗 = 基準(bias) + 航速 + 天候 + 吃水 + 髒污殘差。
+        """
+        import xgboost as xgb
+
+        dm = xgb.DMatrix(feat[MODEL_FEATURES])
+        # early stopping 時 sklearn predict 只用到 best_iteration，歸因需裁到同一範圍才會相加吻合
+        best = getattr(self.model, "best_iteration", None)
+        it_range = (0, best + 1) if best is not None else None
+        contrib = self.model.get_booster().predict(dm, pred_contribs=True, iteration_range=it_range)
+        cols = [f"contrib_{c}" for c in MODEL_FEATURES] + ["contrib_bias"]
+        return pd.DataFrame(contrib, columns=cols, index=feat.index)
+
     def save(self, path: str | Path) -> None:
         self.model.save_model(str(path))
 

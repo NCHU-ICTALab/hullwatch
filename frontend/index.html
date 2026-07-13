@@ -141,14 +141,21 @@ input[type=range]{accent-color:var(--accent);width:100%}
     <!-- SHIP -->
     <section class="screen" id="s-ship">
       <div class="eyebrow">VESSEL DETAIL</div>
-      <div class="titlerow"><h1 id="shipName">—</h1><span class="badge" id="shipBadge"></span><span class="chip src"><span class="dot"></span><span class="srctxt"></span></span></div>
+      <div class="titlerow"><span class="qchip" onclick="nav('fleet')" style="user-select:none">← 船隊總覽</span><h1 id="shipName">—</h1><span class="badge" id="shipBadge"></span><span class="chip src"><span class="dot"></span><span class="srctxt"></span></span></div>
       <p class="sub" id="shipSub">Speed Loss 趨勢 · 疊加清潔與塢修事件</p>
       <div class="stats" id="shipStats"></div>
       <div class="two">
-        <div class="card chartwrap">
-          <h3>Speed Loss 趨勢</h3>
-          <p class="cap">實線=實測(好天氣+全速篩選，週平均) · 虛線=預測 · 直線標記=水下事件 · 紅線=清洗門檻</p>
-          <div id="shipChart"></div>
+        <div>
+          <div class="card chartwrap">
+            <h3>Speed Loss 趨勢</h3>
+            <p class="cap">實線=實測(好天氣+全速篩選，週平均) · 虛線=預測 · 直線標記=水下事件 · 紅線=清洗門檻</p>
+            <div id="shipChart" style="position:relative"></div>
+          </div>
+          <div class="card mt" id="attrCard">
+            <h3>油耗歸因 · 近 7 日平均</h3>
+            <p class="cap">實測油耗 = 乾淨基準 + 各因素貢獻（TreeSHAP）· 船體髒污 = 基準模型無法解釋的殘差</p>
+            <div id="attrChart"></div>
+          </div>
         </div>
         <div>
           <div class="card">
@@ -182,7 +189,7 @@ input[type=range]{accent-color:var(--accent);width:100%}
           <p class="cap">拖曳選擇清洗日，檢視未來 180 天的平均每日總成本(含清潔費用)。</p>
           <div id="roiChart"></div>
           <div style="display:flex;align-items:center;gap:14px;margin-top:14px">
-            <span style="font-size:12px;color:var(--dim)">第 <span id="dayLbl" style="font-family:var(--mono);color:var(--text)">0</span> 天清洗</span>
+            <span style="font-size:12px;color:var(--dim);white-space:nowrap">第 <span id="dayLbl" style="font-family:var(--mono);color:var(--text)">0</span> 天清洗</span>
             <input type="range" id="roiSlider" min="0" max="180" value="0">
           </div>
           <div class="kv mt"><span class="kk">此選擇的平均每日總成本</span><span class="vv" id="roiAvg">—</span></div>
@@ -311,6 +318,12 @@ function mockShip(id){
     current:{speed_loss_pct:s.speed_loss_pct, days_since_clean:s.days_since_clean, growth_pp_per_day:s.g,
       days_to_threshold:s.days_to_threshold, excess_cost_per_day:s.excess_cost_per_day,
       daily_foc:+(28+s.speed_loss_pct*1.2).toFixed(1), expected_foc:27.5, threshold_pct:10},
+    attribution:{baseline_tons:27.5, factors:[
+      {name:'航速', tons:+(s.speed_loss_pct*0.12).toFixed(1)},
+      {name:'天候', tons:0.6},
+      {name:'吃水', tons:-0.4},
+      {name:'船體髒污', tons:+(s.speed_loss_pct*0.42).toFixed(1), is_fouling:true}],
+      actual_tons:+(27.7+s.speed_loss_pct*0.54).toFixed(1), window_days:7},
     series:mockSeries(s.speed_loss_pct), forecast:mockForecast(s.speed_loss_pct, s.g),
     events:[{date:evd(s.days_since_clean), type:'cleaning', notes:'hull cleaning'},
             {date:evd(Math.max(30,s.days_since_clean-120)), type:'propeller_polish', notes:'routine polish'},
@@ -411,6 +424,42 @@ async function loadShip(id){
     `<li><span class="evdot" style="background:${EV_COLOR[e.type]||'var(--dim)'}"></span><span style="flex:1">${EV_ZH[e.type]||e.type}<div style="color:var(--mute)">${e.date}</div></span><span style="font-family:var(--mono);color:var(--dim);font-size:11px">${e.notes||''}</span></li>`).join('')
     : '<li style="color:var(--mute)">窗口內無事件</li>';
   drawShipChart(d);
+  drawAttribution(d.attribution);
+}
+
+function drawAttribution(a){
+  const card = document.getElementById('attrCard');
+  if(!a){ card.style.display='none'; return; }
+  card.style.display='';
+  const W=560, rowH=32, pl=104, pr=96, pt=8, iw=W-pl-pr;
+  // 真瀑布：基準 → 各因素累積銜接 → 實測
+  let cum = a.baseline_tons;
+  const rows = [{name:'乾淨基準', x0:0, x1:a.baseline_tons, v:a.baseline_tons, col:'#38BDF8', base:true}];
+  a.factors.forEach(f=>{
+    rows.push({name:f.name, x0:Math.min(cum, cum+f.tons), x1:Math.max(cum, cum+f.tons), v:f.tons,
+      col:f.is_fouling?'var(--alert)':(f.tons>=0?'var(--gold)':'var(--accent)')});
+    cum += f.tons;
+  });
+  rows.push({name:'實測油耗', x0:0, x1:a.actual_tons, v:a.actual_tons, col:'var(--text)', base:true, total:true});
+  const maxV = Math.max(...rows.map(r=>r.x1))*1.04;
+  const X = v => pl + v/maxV*iw;
+  const H = pt + rows.length*rowH + 10;
+  let g='';
+  rows.forEach((r,i)=>{
+    const y=pt+i*rowH, w=Math.max(2, X(r.x1)-X(r.x0));
+    g+=`<text x="${pl-10}" y="${y+16}" fill="${r.total?'var(--text)':'var(--dim)'}" font-size="12" text-anchor="end" ${r.total?'font-weight="600"':''}>${r.name}</text>`;
+    g+=`<rect x="${X(r.x0)}" y="${y+3}" width="${w}" height="17" rx="4" fill="${r.col}" opacity="${r.base?(r.total?0.35:0.7):0.95}"/>`;
+    const lbl = r.base ? `${r.v.toFixed(1)}` : `${r.v>=0?'+':''}${r.v.toFixed(1)}`;
+    g+=`<text x="${X(r.x1)+7}" y="${y+16}" fill="var(--text)" font-size="11.5" font-family="var(--mono)">${lbl} 噸</text>`;
+    if(!r.base && i<rows.length-1)
+      g+=`<line x1="${X(cum2(rows,i))}" y1="${y+20}" x2="${X(cum2(rows,i))}" y2="${y+rowH+3}" stroke="var(--border2)" stroke-dasharray="2 2"/>`;
+  });
+  document.getElementById('attrChart').innerHTML=`<svg viewBox="0 0 ${W} ${H}" width="100%">${g}</svg>`;
+}
+function cum2(rows, i){ // 第 i 列（因素列）結束後的累積位置
+  let c = rows[0].v;
+  for(let k=1;k<=i;k++) c += rows[k].base?0:rows[k].v;
+  return c;
 }
 
 function drawShipChart(d){
@@ -440,7 +489,23 @@ function drawShipChart(d){
     const x=X(idx), col=EV_COLOR[e.type]||'var(--dim)';
     g+=`<line x1="${x}" y1="${pt}" x2="${x}" y2="${pt+ih}" stroke="${col}" stroke-width="1" opacity="0.35"/><circle cx="${x}" cy="${Y(pts[idx].v)}" r="4" fill="${col}"/><text x="${x}" y="${pt-5}" fill="${col}" font-size="10" text-anchor="middle">${EV_ZH[e.type]?.slice(-2)||''}</text>`;});
   g+=`<circle cx="${X(n-1)}" cy="${Y(pts[n-1].v)}" r="4.5" fill="var(--accent)" stroke="var(--bg)" stroke-width="2"/>`;
-  document.getElementById('shipChart').innerHTML=`<svg viewBox="0 0 ${W} ${H}" width="100%">${g}</svg>`;
+  const wrap=document.getElementById('shipChart');
+  wrap.innerHTML=`<svg viewBox="0 0 ${W} ${H}" width="100%">${g}<circle id="hoverDot" r="4" fill="var(--gold)" stroke="var(--bg)" stroke-width="1.5" opacity="0"/></svg><div id="chartTip" style="position:absolute;pointer-events:none;background:var(--bg2);border:1px solid var(--border2);border-radius:8px;padding:4px 9px;font-size:11.5px;font-family:var(--mono);opacity:0;transition:opacity .12s;white-space:nowrap;z-index:5"></div>`;
+  // hover：找最近的資料點，顯示日期與數值
+  const all=[...pts.map(p=>({date:p.date, v:p.v, x:X(p.i), y:Y(p.v), fc:false})),
+             ...fc.map(p=>({date:p.date, v:p.mid, x:X(p.i), y:Y(p.mid), fc:true}))];
+  const svg=wrap.querySelector('svg'), dot=wrap.querySelector('#hoverDot'), tip=wrap.querySelector('#chartTip');
+  svg.addEventListener('mousemove', e=>{
+    const r=svg.getBoundingClientRect(), mx=(e.clientX-r.left)*W/r.width;
+    let best=all[0], bd=1e9;
+    all.forEach(p=>{const d=Math.abs(p.x-mx); if(d<bd){bd=d; best=p;}});
+    dot.setAttribute('cx',best.x); dot.setAttribute('cy',best.y); dot.setAttribute('opacity','1');
+    tip.textContent=`${best.date} · ${best.v.toFixed(1)}%${best.fc?'（預測）':''}`;
+    tip.style.opacity='1';
+    tip.style.left=Math.min(best.x/W*r.width+12, r.width-150)+'px';
+    tip.style.top=Math.max(0, best.y/H*r.height-32)+'px';
+  });
+  svg.addEventListener('mouseleave', ()=>{dot.setAttribute('opacity','0'); tip.style.opacity='0';});
 }
 
 /* ---------- roi ---------- */
@@ -491,21 +556,26 @@ function renderAdvisorUI(){
 }
 async function ask(q){
   const log=document.getElementById('chatlog');
-  log.innerHTML = `
+  const inp=document.getElementById('askInput'); inp.value='';
+  // 保留對話歷史：附加而非覆蓋
+  const turn=document.createElement('div');
+  turn.innerHTML = `
     <div class="msg u"><div class="avatar av-u">你</div><div class="bubble">${esc(q)}</div></div>
-    <div class="msg"><div class="avatar av-a">AI</div><div class="bubble" style="color:var(--mute)">思考中…</div></div>`;
+    <div class="msg"><div class="avatar av-a">AI</div><div class="bubble ai-pending" style="color:var(--mute)">思考中…</div></div>`;
+  log.appendChild(turn);
+  turn.scrollIntoView({behavior:'smooth', block:'end'});
   try{
     const a = await DATA.advisor(q);
     document.getElementById('advisorMode').textContent = 'mode: '+a.mode;
-    log.innerHTML = `
-      <div class="msg u"><div class="avatar av-u">你</div><div class="bubble">${esc(q)}</div></div>
-      <div class="msg"><div class="avatar av-a">AI</div><div style="flex:1">
+    turn.querySelector('.msg:last-child').innerHTML = `
+      <div class="avatar av-a">AI</div><div style="flex:1">
         <ul class="steps">${(a.steps||[]).map(s=>`<li>${esc(s)}</li>`).join('')}</ul>
         <div class="bubble">${esc(a.answer)}<div class="cites">${(a.citations||[]).map(c=>`<span class="cite">▸ ${esc(c)}</span>`).join('')}</div></div>
-      </div></div>`;
+      </div>`;
   }catch(e){
-    log.querySelector('.msg:last-child .bubble').textContent = '顧問服務暫時無法回應：'+e;
+    turn.querySelector('.ai-pending').textContent = '顧問服務暫時無法回應：'+e;
   }
+  turn.scrollIntoView({behavior:'smooth', block:'end'});
 }
 
 /* ---------- inspect ---------- */

@@ -79,6 +79,15 @@ def test_save_load_roundtrip(fitted, tmp_path):
     np.testing.assert_allclose(a, b, rtol=1e-5)
 
 
+def test_shap_contributions_sum_to_prediction(fitted):
+    model, feat, _ = fitted
+    sample = feat.head(50)
+    contrib = model.contributions(sample)
+    total = contrib.sum(axis=1).to_numpy()
+    pred = model.predict_f_rel(sample)
+    assert abs(total - pred).max() < 1e-3
+
+
 @pytest.mark.slow
 def test_leave_one_ship_out(pipeline_data):
     """LOSO：模型須泛化到未見過的船（相對化特徵的存在理由）。"""

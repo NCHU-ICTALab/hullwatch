@@ -72,6 +72,12 @@ def run_pipeline(raw_dir: Path | None = None, artifact_dir: Path | None = None,
     model = CleanBaselineModel().fit(feat)
     scored = smooth_speed_loss(model.score_rows(feat))
 
+    # 油耗歸因（TreeSHAP，換算成噸/天）：實測 = 基準 + 航速 + 天候 + 吃水 + 髒污殘差
+    contribs = model.contributions(scored)
+    for col, name in [("contrib_v_rel", "attr_speed_tons"), ("contrib_wind", "attr_wind_tons"),
+                      ("contrib_draft_rel", "attr_draft_tons"), ("contrib_bias", "attr_base_tons")]:
+        scored[name] = (contribs[col] * scored["f_ref"]).round(3)
+
     # 肘點法分級（掛在平滑殘差上）
     cuts = fouling_levels(scored["speed_loss_smooth"].dropna().to_numpy())
 
@@ -122,7 +128,8 @@ def run_pipeline(raw_dir: Path | None = None, artifact_dir: Path | None = None,
     refs.to_csv(artifact_dir / "clean_refs.csv")
     keep_cols = [schema.SHIP_ID, schema.REPORT_DATE, schema.AVG_SPEED, schema.DAILY_FOC,
                  "days_since_clean", "baseline_flag", "expected_foc", "excess_foc",
-                 "excess_foc_pct", "speed_loss_pct", "speed_loss_smooth", "excess_foc_smooth"]
+                 "excess_foc_pct", "speed_loss_pct", "speed_loss_smooth", "excess_foc_smooth",
+                 "attr_base_tons", "attr_speed_tons", "attr_wind_tons", "attr_draft_tons"]
     scored[keep_cols].to_csv(artifact_dir / "scored.csv", index=False)
     events.to_csv(artifact_dir / "events.csv", index=False)
     fleet.to_csv(artifact_dir / "fleet.csv", index=False)

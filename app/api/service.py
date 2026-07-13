@@ -119,6 +119,7 @@ class FleetService:
                          & (self.events[schema.EVENT_DATE] >= (dates.min() if len(dates) else pd.Timestamp.max))]
         dtt = None if pd.isna(r.days_to_threshold) else int(r.days_to_threshold)
         status = _status(float(r.current_speed_loss_pct), dtt)
+        attribution = self._attribution(ship_id)
         return {
             "ship_id": ship_id, "ship_name": r.ship_name,
             "status": status, "fouling_level": r.fouling_level,
@@ -132,6 +133,7 @@ class FleetService:
                 "expected_foc": round(float(weekly["expected_foc"].iloc[-1]), 1) if len(weekly) else None,
                 "threshold_pct": config.CLEANING_THRESHOLD_PCT,
             },
+            "attribution": attribution,
             "series": [
                 {"date": d.strftime("%Y-%m-%d"), "speed_loss": round(float(v), 2)}
                 for d, v in zip(dates, weekly["speed_loss_smooth"])
@@ -142,6 +144,28 @@ class FleetService:
                  "type": e[schema.EVENT_TYPE], "notes": e.get(schema.EVENT_NOTES, "")}
                 for _, e in ev.iterrows()
             ],
+        }
+
+    def _attribution(self, ship_id: str) -> dict | None:
+        """近 7 天平均的油耗歸因瀑布（TreeSHAP，管線已存於 scored.csv）。
+
+        實測油耗 = 基準 + 航速 + 天候 + 吃水 + 船體髒污（殘差）。
+        """
+        g = self.scored[self.scored[schema.SHIP_ID] == ship_id].tail(7)
+        if len(g) < 3 or "attr_base_tons" not in g.columns:
+            return None
+        base = float(g["attr_base_tons"].mean())
+        factors = [
+            {"name": "航速", "tons": round(float(g["attr_speed_tons"].mean()), 2)},
+            {"name": "天候", "tons": round(float(g["attr_wind_tons"].mean()), 2)},
+            {"name": "吃水", "tons": round(float(g["attr_draft_tons"].mean()), 2)},
+            {"name": "船體髒污", "tons": round(float(g["excess_foc"].mean()), 2), "is_fouling": True},
+        ]
+        return {
+            "baseline_tons": round(base, 2),
+            "factors": factors,
+            "actual_tons": round(float(g[schema.DAILY_FOC].mean()), 2),
+            "window_days": int(len(g)),
         }
 
     # ---------- roi ----------

@@ -44,6 +44,16 @@ def test_fleet(client):
     assert sls == sorted(sls, reverse=True)
 
 
+def test_ship_attribution_waterfall(client):
+    ships = client.get("/api/fleet").json()["ships"]
+    d = client.get(f"/api/ship/{ships[0]['ship_id']}").json()
+    a = d["attribution"]
+    assert a is not None
+    parts = a["baseline_tons"] + sum(f["tons"] for f in a["factors"])
+    assert abs(parts - a["actual_tons"]) < 0.6  # 近 7 天平均，允許平滑誤差
+    assert any(f.get("is_fouling") for f in a["factors"])
+
+
 def test_ship_detail(client):
     ship_id = client.get("/api/fleet").json()["ships"][0]["ship_id"]
     r = client.get(f"/api/ship/{ship_id}")

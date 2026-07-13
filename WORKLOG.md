@@ -52,6 +52,18 @@
   - Learner Lab session 結束機器會停止、重啟後公網 IP 會變；demo 前需重跑
     `--status` 拿新 IP，或當天在比賽環境直接 `launch_demo_ec2.py`。
 
+### 賽前加值（7/13 深夜）
+
+- ✅ **油耗歸因瀑布**（評審問題 2 的視覺答案）：XGBoost 內建 TreeSHAP（pred_contribs，
+  已對齊 early-stopping 的 best_iteration）→ 實測油耗 = 乾淨基準 + 航速 + 天候 + 吃水 + 髒污殘差，
+  單船頁新卡片，近 7 日平均。物理亮點：髒污船跑得慢所以航速項為負，髒污殘差把它吃回去。
+- ✅ **水下報告 PDF 解析骨架**（`app/pipeline/report_parser.py`）：pypdf 文字抽取 +
+  中英日期/事件關鍵字辨識 → events.csv；當天只需增補 EVENT_KEYWORDS。解析結果設計為必經人工過目。
+- ✅ **UX 修整**：顧問對話歷史保留（附加+捲動）、趨勢圖 hover 顯示日期/數值、
+  單船頁返回鈕、ROI 滑桿標籤斷行修正。
+- ✅ 測試 **42 passed**；Playwright 重驗零 JS 錯誤。
+- ⚠️ EC2 演練機上的是舊版程式碼；如要展示新功能需重跑 `--teardown` + `launch_demo_ec2.py`。
+
 ### 比賽當天才能做（依賴當天資源）
 
 - 真資料接入：改 `schema.COLUMN_ALIASES` → 重跑管線 → Optuna
