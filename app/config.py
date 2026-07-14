@@ -58,6 +58,7 @@ BEDROCK_KB_ID = _s("HW_BEDROCK_KB_ID", "")
 
 # --- notifications (empty means configured channel is disabled) ---
 SES_FROM_EMAIL = _s("HW_SES_FROM_EMAIL", "")
+SES_REGION = _s("HW_SES_REGION", "us-east-1")
 DISCORD_WEBHOOK_URL = _s("HW_DISCORD_WEBHOOK_URL", "")
 
 # --- fuel market ---

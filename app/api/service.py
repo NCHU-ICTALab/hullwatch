@@ -15,9 +15,10 @@ import xgboost as xgb
 from app import config, schema
 from app.api.fuel_market import FuelMarketService
 from app.api.model_packages import ModelPackageStore
+from app.api.notifications import NotificationSubscriptionStore
 from app.pipeline.baseline import CleanBaselineModel
 from app.pipeline.features import build_features
-from app.pipeline.roi import RoiParams, days_to_threshold, whatif_curve
+from app.pipeline.roi import POST_CLEAN_SL_PCT, RoiParams, days_to_threshold, whatif_curve
 
 FORECAST_WEEKS = 16
 HISTORY_WEEKS = 78  # 圖表顯示最近 18 個月
@@ -56,6 +57,9 @@ class FleetService:
         self.read_alert_ids: set[str] = set()
         self.fuel_market = FuelMarketService(d / "fuel-market-cache.json")
         self.model_packages = ModelPackageStore(d / "model-packages")
+        self.notification_subscriptions = NotificationSubscriptionStore(
+            d / "notification-subscriptions.json"
+        )
 
     # ---------- model registry ----------
     def model_registry(self) -> dict:
@@ -526,10 +530,37 @@ class FleetService:
             "unread_count": sum(not alert["read"] for alert in alerts),
             "channels": {
                 "in_app": "active",
-                "ses": "configured" if config.SES_FROM_EMAIL else "not_configured",
-                "discord": "configured" if config.DISCORD_WEBHOOK_URL else "not_configured",
+                **self.notification_subscriptions.channel_status(),
             },
         }
+
+    def list_notification_subscriptions(self) -> dict:
+        ships = self.fleet[["ship_id", "ship_name"]].sort_values("ship_id").to_dict("records")
+        return {
+            "subscriptions": self.notification_subscriptions.list_public(),
+            "available_ships": ships,
+            "channels": self.notification_subscriptions.channel_status(),
+        }
+
+    def create_notification_subscription(
+        self, channel: str, destination: str | None, ship_ids: list[str]
+    ) -> dict:
+        known = set(self.fleet["ship_id"].astype(str))
+        unknown = sorted(set(ship_ids) - known)
+        if unknown:
+            raise ValueError(f"未知船舶：{', '.join(unknown)}")
+        if not ship_ids:
+            raise ValueError("請至少選擇一艘船")
+        return self.notification_subscriptions.create(channel, destination, ship_ids)
+
+    def delete_notification_subscription(self, subscription_id: str) -> dict:
+        self.notification_subscriptions.delete(subscription_id)
+        return {"id": subscription_id, "deleted": True}
+
+    def send_notification_digest(self, subscription_id: str) -> dict:
+        return self.notification_subscriptions.send_digest(
+            subscription_id, self.fleet_overview()["ships"]
+        )
 
     def mark_alert_read(self, alert_id: str) -> dict:
         known = {alert["id"] for alert in self.alerts()["alerts"]}
@@ -723,6 +754,7 @@ class FleetService:
         ship_id: str | None = None,
         fuel_price: float | None = None,
         cleaning_cost: float | None = None,
+        speed_loss_recovery_pp: float | None = None,
     ) -> dict:
         f = self.fleet
         target = f[f["ship_id"] == ship_id].iloc[0] if ship_id else f.iloc[0]
@@ -732,10 +764,14 @@ class FleetService:
             horizon_days=self.roi_params.horizon_days,
             co2_per_ton=self.roi_params.co2_per_ton,
         )
+        post_clean_sl = max(
+            0.0,
+            float(target.current_speed_loss_pct) - float(speed_loss_recovery_pp),
+        ) if speed_loss_recovery_pp is not None else POST_CLEAN_SL_PCT
         curve = whatif_curve(
             current_sl_pct=float(target.current_speed_loss_pct),
             growth_pp_day=self._decision_growth(target),
-            f_ref=float(target.f_ref), params=params)
+            f_ref=float(target.f_ref), params=params, post_clean_sl_pct=post_clean_sl)
         per_ship, annual_saving = [], 0.0
         for r in f.itertuples():
             c = whatif_curve(float(r.current_speed_loss_pct), self._decision_growth(r),

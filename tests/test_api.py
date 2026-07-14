@@ -89,6 +89,23 @@ def test_roi_accepts_fuel_price_override_for_scenario_analysis(client):
     assert override["target"]["current_excess_cost"] > baseline["target"]["current_excess_cost"]
 
 
+def test_roi_accepts_recommended_action_cost_for_consistent_decision_curve(client):
+    recommendation = client.get("/api/schedule").json()["recommendations"][0]
+
+    body = client.get("/api/roi", params={
+        "ship_id": recommendation["ship_id"],
+        "cleaning_cost": recommendation["action_cost_usd"],
+        "speed_loss_recovery_pp": recommendation["speed_loss_recovery_pp"],
+    }).json()
+
+    assert body["target"]["ship_id"] == recommendation["ship_id"]
+    assert body["stats"]["cleaning_cost_usd"] == recommendation["action_cost_usd"]
+    assert body["target"]["post_clean_sl_pct"] == pytest.approx(
+        max(0, recommendation["speed_loss_pct"] - recommendation["speed_loss_recovery_pp"]),
+        abs=0.02,
+    )
+
+
 def test_model_registry_exposes_one_primary_and_comparison_models(client):
     response = client.get("/api/models")
 
@@ -162,6 +179,18 @@ def test_fuel_prices_expose_five_grades_sources_and_history(client):
     assert body["stale_after_hours"] == 24
 
 
+def test_fuel_history_can_drive_a_grade_selector(client):
+    body = client.get("/api/fuel-prices").json()
+
+    grades = {price["grade"] for price in body["prices"]}
+    history_by_grade = body["history_by_grade"]
+    assert grades <= history_by_grade.keys()
+    assert all(
+        points and {"date", "usd_per_ton", "source"} <= points[0].keys()
+        for points in history_by_grade.values()
+    )
+
+
 def test_noon_report_upload_updates_ship_log_and_current_kpi(client):
     ship_id = client.get("/api/fleet").json()["ships"][0]["ship_id"]
     payload = {
@@ -202,6 +231,9 @@ def test_noon_report_csv_template_has_canonical_columns(client):
 
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("text/csv")
+    assert response.headers["content-disposition"] == (
+        'attachment; filename="hullwatch-noon-report-template.csv"'
+    )
     assert response.text.splitlines()[0] == (
         "ship_id,report_date,avg_speed,daily_foc,wind_scale,full_speed_hours"
     )
@@ -313,6 +345,43 @@ def test_alert_center_supports_read_state(client):
     refreshed = client.get("/api/alerts").json()
     updated = next(item for item in refreshed["alerts"] if item["id"] == alert["id"])
     assert updated["read"] is True
+
+
+def test_notification_subscriptions_support_ship_selection_and_safe_crud(client):
+    ship_ids = [ship["ship_id"] for ship in client.get("/api/fleet").json()["ships"][:2]]
+    response = client.post("/api/notification-subscriptions", json={
+        "channel": "email",
+        "destination": "owner@example.com",
+        "ship_ids": ship_ids,
+    })
+
+    assert response.status_code == 201
+    created = response.json()
+    assert created["ship_ids"] == ship_ids
+    assert created["destination_masked"] == "o***@example.com"
+    assert "destination" not in created
+    listing = client.get("/api/notification-subscriptions").json()
+    assert any(item["id"] == created["id"] for item in listing["subscriptions"])
+    assert {ship["ship_id"] for ship in listing["available_ships"]} >= set(ship_ids)
+
+    deleted = client.delete(f"/api/notification-subscriptions/{created['id']}")
+    assert deleted.status_code == 200
+    assert all(
+        item["id"] != created["id"]
+        for item in client.get("/api/notification-subscriptions").json()["subscriptions"]
+    )
+
+
+def test_notification_subscription_rejects_unknown_ship_and_invalid_email(client):
+    invalid_ship = client.post("/api/notification-subscriptions", json={
+        "channel": "email", "destination": "owner@example.com", "ship_ids": ["NOPE"],
+    })
+    invalid_email = client.post("/api/notification-subscriptions", json={
+        "channel": "email", "destination": "not-an-email", "ship_ids": [],
+    })
+
+    assert invalid_ship.status_code == 422
+    assert invalid_email.status_code == 422
 
 
 def test_advisor_scripted(client):

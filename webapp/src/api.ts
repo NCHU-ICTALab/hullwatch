@@ -6,6 +6,8 @@ import type {
   FuelPriceResponse,
   LogEntry,
   ModelInfo,
+  NotificationSubscription,
+  NotificationSubscriptionsResponse,
   NoonReportImportResponse,
   RoiResponse,
   ScheduleResponse,
@@ -19,6 +21,12 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     throw new Error(body?.detail ?? `HTTP ${response.status}`)
   }
   return response.json() as Promise<T>
+}
+
+async function download(path: string): Promise<Blob> {
+  const response = await fetch(path)
+  if (!response.ok) throw new Error(`下載失敗（HTTP ${response.status}）`)
+  return response.blob()
 }
 
 export const api = {
@@ -40,14 +48,25 @@ export const api = {
     request<ForecastResponse>(
       `/api/ship/${encodeURIComponent(shipId)}/forecast?model=${encodeURIComponent(modelId)}&speed=${speed}`,
     ),
-  roi: (shipId: string, fuelPrice?: number) => request<RoiResponse>(
-    `/api/roi?ship_id=${encodeURIComponent(shipId)}${fuelPrice ? `&fuel_price=${fuelPrice}` : ''}`,
+  roi: (shipId: string, fuelPrice?: number, cleaningCost?: number, recoveryPp?: number) => request<RoiResponse>(
+    `/api/roi?ship_id=${encodeURIComponent(shipId)}${fuelPrice ? `&fuel_price=${fuelPrice}` : ''}${cleaningCost ? `&cleaning_cost=${cleaningCost}` : ''}${recoveryPp !== undefined ? `&speed_loss_recovery_pp=${recoveryPp}` : ''}`,
   ),
   schedule: () => request<ScheduleResponse>('/api/schedule?past_days=90&future_days=180'),
   fuelPrices: () => request<FuelPriceResponse>('/api/fuel-prices'),
   alerts: () => request<AlertsResponse>('/api/alerts'),
   markAlertRead: (alertId: string) =>
     request<{ id: string; read: boolean }>(`/api/alerts/${encodeURIComponent(alertId)}/read`, { method: 'POST' }),
+  notificationSubscriptions: () => request<NotificationSubscriptionsResponse>('/api/notification-subscriptions'),
+  createNotificationSubscription: (body: { channel: 'email' | 'discord'; destination?: string; ship_ids: string[] }) =>
+    request<NotificationSubscription>('/api/notification-subscriptions', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+    }),
+  deleteNotificationSubscription: (id: string) => request<{ id: string; deleted: boolean }>(
+    `/api/notification-subscriptions/${encodeURIComponent(id)}`, { method: 'DELETE' },
+  ),
+  sendNotificationDigest: (id: string) => request<{ delivered: boolean; status: string; ship_count: number }>(
+    `/api/notification-subscriptions/${encodeURIComponent(id)}/send`, { method: 'POST' },
+  ),
   log: (shipId: string) =>
     request<{ entries: LogEntry[] }>(`/api/ship/${encodeURIComponent(shipId)}/log?days=30`),
   noonReport: (report: {
@@ -67,6 +86,7 @@ export const api = {
     body.set('file', file)
     return request<NoonReportImportResponse>('/api/noon-report/file', { method: 'POST', body })
   },
+  downloadNoonReportTemplate: () => download('/api/noon-report/template'),
   advisor: (question: string) => request<AdvisorResponse>('/api/advisor', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },

@@ -19,7 +19,7 @@
 | 1. 新 API 公開契約 | 完成 | models、forecast、schedule、fuel-prices、log、noon-report、alerts 測試通過 |
 | 2. Bridge Ops 殼層 | 完成 | Fleet／Diagnose／Decide 三段導航、主題與響應式版面完成 |
 | 3. 真資料主動線 | 完成 | 15 船真 artifact 接線，loading／error／empty state 完整 |
-| 4. 工具功能 | 部分完成 | AI 顧問、水下判讀、警報抽屜、五油種 ticker 可操作；SES/Discord 實際發送待做 |
+| 4. 工具功能 | 完成 | AI 顧問、水下判讀、警報抽屜、五油種 ticker、依船舶訂閱與 SES/Discord 明確發送 |
 | 5. a11y 與部署 | 部分完成 | 鍵盤、focus、表格 fallback、reduced motion、FastAPI mount 與 Docker build stage 完成；瀏覽器與 Docker daemon 待複驗 |
 | 6. Review 與提交 | 完成 | Python 61 tests、前端 build/lint、雙軸 review 均通過並 commit |
 
@@ -63,7 +63,7 @@
 ## 尚未完成的高風險 must
 
 - 真燃油資料鏈：Ship & Bunker 低頻快取、USDA 歷史、Yahoo fallback，以及真實船別五油種配比。
-- SES email／Discord webhook 實際發送與現場端到端驗證。
+- SES email／Discord 發送程式已完成；尚待真憑證現場端到端驗證與排程觸發。
 - 新的正式未來預測模型 artifact 尚未提供；目前公開的是誠實標示的線性結垢、物理情境與 persistence。
 - 使用者可自訂 KPI 顯示／隱藏尚未實作。
 
@@ -95,8 +95,8 @@
 - `FuelMarketService`：Ship & Bunker Singapore 公開頁解析、USDA SODA 獨立降級、Yahoo Brent 期貨質量等值 proxy 最後保底、6 小時 JSON 快取、來源／抓取任一逾 24 小時即 stale，以及 unavailable 誠實狀態；Yahoo 值一律標 EST/proxy，不冒充港口現貨。
 - 批次日報：`GET /api/noon-report/template`、`POST /api/noon-report/file`；CSV 逐列驗證、部分成功、同船同日 idempotent overwrite。
 - 模型治理：manifest 範本、XGBoost JSON 安全載入、固定趨勢特徵契約、歷史共同驗證集 MAE（候選不得比現行惡化逾 5%）、輸出 finite/range 檢查、手動 activate/restore；ONNX 只預留 adapter 邊界，尚未啟用。
-- 設定介面分為資料匯入、模型管理、資料來源、介面與通知。登入／角色權限尚未實作；正式部署必須在模型與資料寫入 API 前接身分驗證與授權。
-- 油價跑馬燈移到 Fleet 標題下方，hover/focus 暫停；警報 Sidebar 可滑鼠拖曳或鍵盤方向鍵縮放；甘特圖可縮放、前後捲動、回到今天並按 ID／名稱／風險／成本／SL 排序。
+- 設定介面分為資料匯入、模型管理、資料來源、電子報訂閱與介面。登入／角色權限尚未實作；正式部署必須在模型與資料寫入 API 前接身分驗證與授權。
+- 油價跑馬燈移到 Fleet 標題下方，只由明確按鈕暫停（系統 reduced-motion 時靜止）；警報 Sidebar 可滑鼠拖曳或鍵盤方向鍵縮放；甘特圖可縮放、前後捲動、回到今天並按 ID／名稱／風險／成本／SL 排序。
 - 未使用 Playwright 或其他瀏覽器替代工具：依 in-app Browser 技能規範，當 backend 列表為空時只記錄待複驗。
 - 最終驗證：`pytest -q` 61 passed（另有 1 則既有 Starlette/httpx deprecation warning）；`npm run build`、`npm run lint` 通過。Vite 仍提示主 bundle 大於 500kB（gzip 約 256kB），列為後續 code splitting 技術債。
 - 雙軸 review：4 項硬問題（active model 未驅動下游、候選模型可覆寫、上傳無 bounded read、壞快取可能 500）與後續 manifest 型別 500 均已修正；本批規格缺口複核後補上 Yahoo proxy、模型變更刷新 schedule、critical 再發判定。剩餘 judgement call 是 `App.tsx` 約 680 行的 Divergent Change，競賽穩定後拆 page/feature。
@@ -104,3 +104,17 @@
 ## 待使用者確認
 
 集中於本輪結束時列出；不阻擋可逆、規格內的實作。
+
+## 2026-07-15 第三批：互動修復與通知訂閱
+
+- ticker：移除 focus／hover 隱性暫停；reduced-motion 保持靜止但不再產生橫向捲軸，使用者仍可用按鈕暫停。
+- 甘特：同時間附近的維護事件以 greedy lane 分層，軌道高度隨 lane 數增加；選船同步更新上層 ship id，ROI 與下方資訊會重新查詢。
+- 燃油趨勢：API 新增 `history_by_grade`，畫面可切換 VLSFO、LSMGO、HSHFO、ULSFO、BIO_HSFO；估算／proxy 序列在來源欄明確標示。
+- ROI：保留後端 180 天逐日 What-if 計算，主圖改畫「相較永不清洗的平均每日淨節省」，避免總成本尺度把曲率壓扁；表格同時保留原始成本。
+- Speed Loss 圖：黃色菱形直接標註 PP／UWC／UWI，並新增事件說明與可展開清單。
+- 日報範本：改為明確 fetch/blob 下載，提供螢幕閱讀器可讀的成功／錯誤狀態。
+- 通知：新增 JSON-backed 多筆訂閱、Email 遮罩、系統單一 Discord webhook、每筆船舶選擇、SES／Discord 實際摘要發送與測試替身。部署與排程待辦見 `notification-delivery.md`。
+- a11y：原生 fieldset/legend、email 型別、checkbox label、aria-live、鍵盤可操作按鈕與圖表資料表 fallback。
+- 驗證：Python **68 passed**；前端 Vitest **3 passed**；`npm run lint` 與 production build 通過。Vite 主 bundle約 788KB（gzip 259KB），code-splitting warning 仍在。
+- 雙軸審查修正：移除直接比對原始碼字串的測試，改測 exported dashboard behavior；DD 一併分 lane、甘特 fallback 補維護／乾塢表格、油價 footer 跟隨所選油種、ROI 使用推薦動作成本與 SL 回復幅度（不再把 PP/UWC 都當完整清洗）、切船期間清空舊 ROI；sparkline 補完整隱藏資料表；通知 store 補結構驗證與寫入鎖。複審無 hard violation。
+- 視覺 QA：in-app Browser backend 列表仍為空；未以其他瀏覽器工具繞過，保留人工點擊與截圖待辦。

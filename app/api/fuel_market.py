@@ -30,8 +30,8 @@ def _parse_market_date(label: str, now: datetime) -> str:
     return parsed.date().isoformat()
 
 
-def parse_ship_bunker(html: str, now: datetime) -> tuple[list[dict], list[dict]]:
-    """Parse the provider's public price tables without executing page scripts."""
+def _parse_ship_bunker_all(html: str, now: datetime) -> tuple[list[dict], dict[str, list[dict]]]:
+    """Parse current prices and per-grade histories from the public tables."""
     grades = {
         "VLSFO": "VLSFO",
         "LSMGO": "MGO",
@@ -39,7 +39,7 @@ def parse_ship_bunker(html: str, now: datetime) -> tuple[list[dict], list[dict]]
         "BIO_HSFO": "BIO",
     }
     prices: list[dict] = []
-    vlsfo_history: list[dict] = []
+    history_by_grade: dict[str, list[dict]] = {}
     for display_grade, table_grade in grades.items():
         table_match = re.search(
             rf'<table[^>]*class="price-table\s+{re.escape(table_grade)}"[^>]*>(.*?)</table>',
@@ -70,21 +70,34 @@ def parse_ship_bunker(html: str, now: datetime) -> tuple[list[dict], list[dict]]
             "as_of": as_of,
             "estimated": False,
         })
-        if display_grade == "VLSFO":
-            vlsfo_history = [
-                {"date": date, "vlsfo_usd_per_ton": price, "source": "Ship & Bunker Singapore"}
-                for date, price in reversed(parsed_rows[:30])
-            ]
+        history_by_grade[display_grade] = [
+            {"date": date, "usd_per_ton": price, "source": "Ship & Bunker Singapore"}
+            for date, price in reversed(parsed_rows[:30])
+        ]
     if prices:
         mgo = next((item for item in prices if item["grade"] == "LSMGO"), None)
         if mgo:
             prices.append({**mgo, "grade": "ULSFO", "source": "LSMGO proxy", "estimated": True})
-    return prices, vlsfo_history
+            history_by_grade["ULSFO"] = [
+                {**point, "source": "LSMGO proxy", "estimated": True}
+                for point in history_by_grade.get("LSMGO", [])
+            ]
+    return prices, history_by_grade
 
 
-def parse_usda(rows: list[dict]) -> tuple[list[dict], list[dict]]:
+def parse_ship_bunker(html: str, now: datetime) -> tuple[list[dict], list[dict]]:
+    """Backward-compatible parser used by the focused source tests."""
+    prices, history_by_grade = _parse_ship_bunker_all(html, now)
+    history = [
+        {"date": point["date"], "vlsfo_usd_per_ton": point["usd_per_ton"], "source": point["source"]}
+        for point in history_by_grade.get("VLSFO", [])
+    ]
+    return prices, history
+
+
+def _parse_usda_all(rows: list[dict]) -> tuple[list[dict], dict[str, list[dict]]]:
     if not rows:
-        return [], []
+        return [], {}
     mapping = {
         "HSHFO": "intermdiate_fuel_oil_380cst",
         "VLSFO": "vlsfo_fuel_oil_imo_2020_grade_0_5",
@@ -111,14 +124,35 @@ def parse_usda(rows: list[dict]) -> tuple[list[dict], list[dict]]:
     if hshfo:
         prices.append({**hshfo, "grade": "BIO_HSFO", "usd_per_ton": round(hshfo["usd_per_ton"] * 1.18, 2),
                        "source": "HSFO + bio blend scenario", "estimated": True})
+    history_by_grade = {
+        grade: [
+            {
+                "date": str(row["day"])[:10],
+                "usd_per_ton": float(row[column]),
+                "source": "USDA Open Ag Transport Data",
+            }
+            for row in reversed(rows)
+            if row.get(column) not in {None, ""}
+        ]
+        for grade, column in mapping.items()
+    }
+    history_by_grade["ULSFO"] = [
+        {**point, "source": "LSMGO proxy", "estimated": True}
+        for point in history_by_grade.get("LSMGO", [])
+    ]
+    history_by_grade["BIO_HSFO"] = [
+        {**point, "usd_per_ton": round(point["usd_per_ton"] * 1.18, 2),
+         "source": "HSFO + bio blend scenario", "estimated": True}
+        for point in history_by_grade.get("HSHFO", [])
+    ]
+    return prices, history_by_grade
+
+
+def parse_usda(rows: list[dict]) -> tuple[list[dict], list[dict]]:
+    prices, history_by_grade = _parse_usda_all(rows)
     history = [
-        {
-            "date": str(row["day"])[:10],
-            "vlsfo_usd_per_ton": float(row["vlsfo_fuel_oil_imo_2020_grade_0_5"]),
-            "source": "USDA Open Ag Transport Data",
-        }
-        for row in reversed(rows)
-        if row.get("vlsfo_fuel_oil_imo_2020_grade_0_5") not in {None, ""}
+        {"date": point["date"], "vlsfo_usd_per_ton": point["usd_per_ton"], "source": point["source"]}
+        for point in history_by_grade.get("VLSFO", [])
     ]
     return prices, history
 
@@ -193,21 +227,21 @@ class FuelMarketService:
         now = self.now()
         with self.client_factory() as client:
             prices: list[dict] = []
-            ship_history: list[dict] = []
+            ship_history: dict[str, list[dict]] = {}
             usda_prices: list[dict] = []
-            usda_history: list[dict] = []
+            usda_history: dict[str, list[dict]] = {}
             yahoo_prices: list[dict] = []
             yahoo_history: list[dict] = []
             try:
                 ship_response = client.get(SHIP_BUNKER_URL)
                 ship_response.raise_for_status()
-                prices, ship_history = parse_ship_bunker(ship_response.text, now)
+                prices, ship_history = _parse_ship_bunker_all(ship_response.text, now)
             except (httpx.HTTPError, ValueError):
                 pass
             try:
                 usda_response = client.get(USDA_URL, params={"$limit": 30, "$order": "day DESC"})
                 usda_response.raise_for_status()
-                usda_prices, usda_history = parse_usda(usda_response.json())
+                usda_prices, usda_history = _parse_usda_all(usda_response.json())
             except (httpx.HTTPError, ValueError, KeyError):
                 pass
             if not prices and not usda_prices:
@@ -235,7 +269,17 @@ class FuelMarketService:
             "currency": "USD",
             "unit": "mt",
             "prices": prices,
-            "history": ship_history or usda_history or yahoo_history,
+            "history": [
+                {"date": point["date"], "vlsfo_usd_per_ton": point["usd_per_ton"], "source": point["source"]}
+                for point in (ship_history or usda_history).get("VLSFO", [])
+            ] or yahoo_history,
+            "history_by_grade": ship_history or usda_history or {
+                "VLSFO": [
+                    {"date": point["date"], "usd_per_ton": point["vlsfo_usd_per_ton"],
+                     "source": point["source"], "estimated": True}
+                    for point in yahoo_history
+                ]
+            },
             "effective_price": {
                 "usd_per_ton": vlsfo["usd_per_ton"],
                 "method": f"{port} VLSFO latest published indication",
@@ -251,6 +295,7 @@ class FuelMarketService:
             "unit": "mt",
             "prices": [],
             "history": [],
+            "history_by_grade": {},
             "effective_price": {
                 "usd_per_ton": config.VLSFO_PRICE_USD,
                 "method": "manual scenario price; live market unavailable",
@@ -304,8 +349,33 @@ class FuelMarketService:
 
     @staticmethod
     def _with_status(data: dict, status: str) -> dict:
+        history_by_grade = data.get("history_by_grade")
+        if not isinstance(history_by_grade, dict):
+            vlsfo_history = [
+                {"date": point["date"], "usd_per_ton": point["vlsfo_usd_per_ton"],
+                 "source": point["source"]}
+                for point in data.get("history", [])
+                if isinstance(point, dict) and "vlsfo_usd_per_ton" in point
+            ]
+            history_by_grade = {"VLSFO": vlsfo_history}
+            current_vlsfo = next(
+                (price for price in data.get("prices", []) if price.get("grade") == "VLSFO"), None
+            )
+            if current_vlsfo and current_vlsfo.get("usd_per_ton"):
+                for price in data.get("prices", []):
+                    grade = price.get("grade")
+                    if not grade or grade == "VLSFO":
+                        continue
+                    ratio = float(price["usd_per_ton"]) / float(current_vlsfo["usd_per_ton"])
+                    history_by_grade[grade] = [
+                        {**point, "usd_per_ton": round(point["usd_per_ton"] * ratio, 2),
+                         "source": f"{grade} current spread × VLSFO history proxy",
+                         "estimated": True}
+                        for point in vlsfo_history
+                    ]
         return {
             **data,
+            "history_by_grade": history_by_grade,
             "market_status": status,
             "refresh_interval_hours": config.FUEL_REFRESH_HOURS,
             "stale_after_hours": config.FUEL_STALE_HOURS,

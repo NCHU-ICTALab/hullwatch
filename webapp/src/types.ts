@@ -125,6 +125,7 @@ export interface RoiResponse {
     best_avg: number
     current_excess_cost: number
     payback_days: number | null
+    post_clean_sl_pct: number
     excess_co2_per_day: number
   }
   per_ship: {
@@ -190,6 +191,12 @@ export interface FuelPriceResponse {
     estimated: boolean
   }[]
   history: { date: string; vlsfo_usd_per_ton: number; source: string }[]
+  history_by_grade: Record<string, {
+    date: string
+    usd_per_ton: number
+    source: string
+    estimated?: boolean
+  }[]>
   effective_price: { usd_per_ton: number; method: string; estimated: boolean }
   fetched_at: string | null
   market_status: 'live' | 'cached' | 'stale' | 'unavailable'
@@ -217,6 +224,20 @@ export interface AlertsResponse {
   alerts: AlertItem[]
   unread_count: number
   channels: { in_app: string; ses: string; discord: string }
+}
+
+export interface NotificationSubscription {
+  id: string
+  channel: 'email' | 'discord'
+  destination_masked: string
+  ship_ids: string[]
+  created_at: string
+}
+
+export interface NotificationSubscriptionsResponse {
+  subscriptions: NotificationSubscription[]
+  available_ships: { ship_id: string; ship_name: string }[]
+  channels: { ses: string; discord: string }
 }
 
 export interface LogEntry {

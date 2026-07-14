@@ -5,6 +5,7 @@ from __future__ import annotations
 import io
 from contextlib import asynccontextmanager
 from datetime import date
+from typing import Literal
 
 import pandas as pd
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
@@ -31,6 +32,12 @@ class NoonReportBody(BaseModel):
     daily_foc: float
     wind_scale: float
     full_speed_hours: float
+
+
+class NotificationSubscriptionBody(BaseModel):
+    channel: Literal["email", "discord"]
+    destination: str | None = None
+    ship_ids: list[str]
 
 
 @asynccontextmanager
@@ -177,13 +184,16 @@ def roi(
     ship_id: str | None = None,
     fuel_price: float | None = None,
     cleaning_cost: float | None = None,
+    speed_loss_recovery_pp: float | None = None,
 ):
     if fuel_price is not None and not 100 <= fuel_price <= 3000:
         raise HTTPException(422, "油價必須介於 100–3000 USD/mt")
     if cleaning_cost is not None and not 0 <= cleaning_cost <= 10_000_000:
         raise HTTPException(422, "清潔成本超出允許範圍")
+    if speed_loss_recovery_pp is not None and not 0 <= speed_loss_recovery_pp <= 35:
+        raise HTTPException(422, "Speed Loss 回復幅度必須介於 0–35pp")
     try:
-        return _svc(app.state).roi(ship_id, fuel_price, cleaning_cost)
+        return _svc(app.state).roi(ship_id, fuel_price, cleaning_cost, speed_loss_recovery_pp)
     except IndexError:
         raise HTTPException(404, f"未知船舶 {ship_id}")
 
@@ -212,6 +222,37 @@ def mark_alert_read(alert_id: str):
         return _svc(app.state).mark_alert_read(alert_id)
     except KeyError:
         raise HTTPException(404, f"未知警報 {alert_id}")
+
+
+@app.get("/api/notification-subscriptions")
+def notification_subscriptions():
+    return _svc(app.state).list_notification_subscriptions()
+
+
+@app.post("/api/notification-subscriptions", status_code=201)
+def create_notification_subscription(body: NotificationSubscriptionBody):
+    try:
+        return _svc(app.state).create_notification_subscription(
+            body.channel, body.destination, body.ship_ids
+        )
+    except ValueError as exc:
+        raise HTTPException(422, str(exc))
+
+
+@app.delete("/api/notification-subscriptions/{subscription_id}")
+def delete_notification_subscription(subscription_id: str):
+    try:
+        return _svc(app.state).delete_notification_subscription(subscription_id)
+    except KeyError:
+        raise HTTPException(404, "找不到這筆訂閱")
+
+
+@app.post("/api/notification-subscriptions/{subscription_id}/send")
+def send_notification_digest(subscription_id: str):
+    try:
+        return _svc(app.state).send_notification_digest(subscription_id)
+    except KeyError:
+        raise HTTPException(404, "找不到這筆訂閱")
 
 
 @app.post("/api/advisor")

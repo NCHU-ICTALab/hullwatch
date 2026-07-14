@@ -47,7 +47,7 @@ def fit_growth_rate(days: np.ndarray, speed_loss_pct: np.ndarray, lookback: int 
 
 
 def whatif_curve(current_sl_pct: float, growth_pp_day: float, f_ref: float,
-                 params: RoiParams) -> dict:
+                 params: RoiParams, post_clean_sl_pct: float = POST_CLEAN_SL_PCT) -> dict:
     """掃描 0..H 天各清洗日的平均每日總成本。
 
     Returns:
@@ -67,14 +67,20 @@ def whatif_curve(current_sl_pct: float, growth_pp_day: float, f_ref: float,
     for D in days:
         pre = cost_no_clean[:D].sum()
         t_post = np.arange(H - D, dtype=float)
-        sl_post = POST_CLEAN_SL_PCT + growth_pp_day * t_post
+        sl_post = post_clean_sl_pct + growth_pp_day * t_post
         post = sum(excess_cost_per_day(s, f_ref, params.fuel_price_usd) for s in sl_post)
         avg_costs[D] = (pre + post + params.cleaning_cost_usd) / H
 
     best_idx = int(np.argmin(avg_costs))
     beats_no_clean = avg_costs[best_idx] < no_clean_avg
     current_cost = excess_cost_per_day(current_sl_pct, f_ref, params.fuel_price_usd)
-    payback = params.cleaning_cost_usd / current_cost if current_cost > 1e-9 else float("inf")
+    recovered_daily_cost = current_cost - excess_cost_per_day(
+        post_clean_sl_pct, f_ref, params.fuel_price_usd
+    )
+    payback = (
+        params.cleaning_cost_usd / recovered_daily_cost
+        if recovered_daily_cost > 1e-9 else float("inf")
+    )
     return {
         "days": days.tolist(),
         "avg_cost": np.round(avg_costs, 2).tolist(),
@@ -83,6 +89,7 @@ def whatif_curve(current_sl_pct: float, growth_pp_day: float, f_ref: float,
         "best_avg": round(float(avg_costs[best_idx]), 2),
         "current_excess_cost": round(current_cost, 2),
         "payback_days": round(payback, 1) if np.isfinite(payback) else None,
+        "post_clean_sl_pct": round(float(post_clean_sl_pct), 2),
         "excess_co2_per_day": round(
             excess_fuel_tons_per_day(current_sl_pct, f_ref) * params.co2_per_ton, 2),
     }
