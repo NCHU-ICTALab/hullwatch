@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type FormEvent, type PointerEvent as ReactPointerEvent } from 'react'
+import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import {
   AlertTriangle,
   Bell,
@@ -21,7 +21,7 @@ import {
 import type { EChartsOption } from 'echarts'
 import { api } from './api'
 import { EChart } from './components/EChart'
-import { allocateEventLanes, cleaningSavings, EVENT_LANE_HEIGHT, fuelHistoryForGrade } from './dashboardLogic'
+import { allocateEventLanes, cleaningSavings, EVENT_LANE_HEIGHT, fuelHistoryForGrade, layoutTrendEventMarkers } from './dashboardLogic'
 import type {
   AdvisorResponse,
   AlertsResponse,
@@ -42,7 +42,7 @@ import type {
 import './App.css'
 
 type View = 'fleet' | 'diagnose' | 'decide'
-type Tool = 'advisor' | 'inspect' | 'settings' | null
+type Tool = 'inspect' | 'settings' | null
 
 const money = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 })
 const number = new Intl.NumberFormat('en-US', { maximumFractionDigits: 1 })
@@ -74,6 +74,7 @@ function App() {
   const [dark, setDark] = useState(() => localStorage.getItem('hw-theme') === 'dark')
   const [tickerPaused, setTickerPaused] = useState(false)
   const [alertOpen, setAlertOpen] = useState(false)
+  const [advisorOpen, setAdvisorOpen] = useState(false)
   const [decisionFocusKey, setDecisionFocusKey] = useState(0)
   const [tool, setTool] = useState<Tool>(null)
   const [refreshVersion, setRefreshVersion] = useState(0)
@@ -158,6 +159,29 @@ function App() {
     return () => window.clearTimeout(timer)
   }, [view, decisionFocusKey])
 
+  useEffect(() => {
+    const handleShortcut = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null
+      const isEditing = target?.matches('input, textarea, select, [contenteditable="true"]')
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'i' && !isEditing) {
+        event.preventDefault()
+        setAdvisorOpen((open) => !open)
+      }
+      if (event.key === 'Escape') {
+        setAdvisorOpen((open) => {
+          if (open) window.setTimeout(() => document.getElementById('advisor-trigger')?.focus())
+          return false
+        })
+        setAlertOpen((open) => {
+          if (open) window.setTimeout(() => document.getElementById('alert-trigger')?.focus())
+          return false
+        })
+      }
+    }
+    window.addEventListener('keydown', handleShortcut)
+    return () => window.removeEventListener('keydown', handleShortcut)
+  }, [])
+
   const filteredShips = useMemo(() => fleet?.ships.filter((ship) => (
     (statusFilter === 'all' || ship.status === statusFilter) && ship.speed_loss_pct >= slMinimum
   )) ?? [], [fleet, statusFilter, slMinimum])
@@ -194,92 +218,104 @@ function App() {
   if (loading) return <LoadingScreen />
 
   return (
-    <div className="app-shell">
-      <a className="skip-link" href="#main-content">跳至主要內容</a>
-      <Header
-        view={view}
-        setView={setView}
-        dark={dark}
-        setDark={setDark}
-        alerts={alerts}
-        onAlert={() => setAlertOpen(true)}
-        onTool={setTool}
-      />
+    <div className={`app-shell ${advisorOpen ? 'advisor-open' : ''}`}>
+      <div className="app-content">
+        <a className="skip-link" href="#main-content">跳至主要內容</a>
+        <Header
+          view={view}
+          setView={setView}
+          dark={dark}
+          setDark={setDark}
+          alerts={alerts}
+          alertOpen={alertOpen}
+          onAlert={() => setAlertOpen((open) => !open)}
+          onAlertClose={() => setAlertOpen(false)}
+          onAlertSelect={markAlert}
+          advisorOpen={advisorOpen}
+          onAdvisor={() => setAdvisorOpen((open) => !open)}
+          onTool={setTool}
+        />
 
-      {error && <div className="error-banner" role="alert"><AlertTriangle size={18} />{error}<button onClick={() => setError('')}>關閉</button></div>}
+        {error && <div className="error-banner" role="alert"><AlertTriangle size={18} />{error}<button onClick={() => setError('')}>關閉</button></div>}
 
-      <main id="main-content">
-        {view === 'fleet' && fleet && (
-          <FleetView
-            fleet={fleet}
-            fuel={fuel}
-            tickerPaused={tickerPaused}
-            setTickerPaused={setTickerPaused}
-            ships={filteredShips}
-            statusFilter={statusFilter}
-            setStatusFilter={setStatusFilter}
-            slMinimum={slMinimum}
-            setSlMinimum={setSlMinimum}
-            onSelect={selectShip}
-          />
-        )}
-        {view === 'diagnose' && (
-          <DiagnoseView
-            detail={detail}
-            models={models}
-            forecasts={forecasts}
-            primaryModel={primaryModel}
-            setPrimaryModel={setPrimaryModel}
-            visibleModels={visibleModels}
-            setVisibleModels={setVisibleModels}
-            scenarioSpeed={scenarioSpeed}
-            setScenarioSpeed={setScenarioSpeed}
-            log={log}
-            roi={roi}
-            onDecide={() => { setView('decide'); setDecisionFocusKey((key) => key + 1) }}
-            recommendation={schedule?.recommendations.find((item) => item.ship_id === selectedShipId)}
-            dark={dark}
-          />
-        )}
-        {view === 'decide' && schedule && fuel && (roi ? (
-          <DecideView
-            schedule={schedule}
-            fuel={fuel}
-            roi={roi}
-            selectedShipId={selectedShipId}
-            primaryModel={primaryModel}
-            onSelect={selectShip}
-            onDecisionShipChange={setSelectedShipId}
-            dark={dark}
-            fuelScenario={fuelScenario}
-            setFuelScenario={setFuelScenario}
-            focusKey={decisionFocusKey}
-          />
-        ) : <InlineLoading label="載入所選船舶的經濟決策" />)}
-      </main>
+        <main id="main-content">
+          {view === 'fleet' && fleet && (
+            <FleetView
+              fleet={fleet}
+              fuel={fuel}
+              tickerPaused={tickerPaused}
+              setTickerPaused={setTickerPaused}
+              ships={filteredShips}
+              statusFilter={statusFilter}
+              setStatusFilter={setStatusFilter}
+              slMinimum={slMinimum}
+              setSlMinimum={setSlMinimum}
+              onSelect={selectShip}
+            />
+          )}
+          {view === 'diagnose' && (
+            <DiagnoseView
+              detail={detail}
+              models={models}
+              forecasts={forecasts}
+              primaryModel={primaryModel}
+              setPrimaryModel={setPrimaryModel}
+              visibleModels={visibleModels}
+              setVisibleModels={setVisibleModels}
+              scenarioSpeed={scenarioSpeed}
+              setScenarioSpeed={setScenarioSpeed}
+              log={log}
+              roi={roi}
+              onDecide={() => { setView('decide'); setDecisionFocusKey((key) => key + 1) }}
+              recommendation={schedule?.recommendations.find((item) => item.ship_id === selectedShipId)}
+              dark={dark}
+            />
+          )}
+          {view === 'decide' && schedule && fuel && (roi ? (
+            <DecideView
+              schedule={schedule}
+              fuel={fuel}
+              roi={roi}
+              selectedShipId={selectedShipId}
+              primaryModel={primaryModel}
+              onSelect={selectShip}
+              onDecisionShipChange={setSelectedShipId}
+              dark={dark}
+              fuelScenario={fuelScenario}
+              setFuelScenario={setFuelScenario}
+              focusKey={decisionFocusKey}
+            />
+          ) : <InlineLoading label="載入所選船舶的經濟決策" />)}
+        </main>
 
-      <AlertDrawer alerts={alerts} open={alertOpen} onClose={() => setAlertOpen(false)} onSelect={markAlert} />
-      <ToolDialog
-        tool={tool}
-        onClose={() => setTool(null)}
-        shipId={selectedShipId}
-        alerts={alerts}
-        fuel={fuel}
-        models={models}
-        onModelsChanged={refreshModels}
-        onReportsImported={refreshAfterReport}
-      />
+        <ToolDialog
+          tool={tool}
+          onClose={() => setTool(null)}
+          shipId={selectedShipId}
+          alerts={alerts}
+          fuel={fuel}
+          models={models}
+          onModelsChanged={refreshModels}
+          onReportsImported={refreshAfterReport}
+        />
+      </div>
+      <AdvisorPanel open={advisorOpen} shipId={selectedShipId} onClose={() => setAdvisorOpen(false)} />
     </div>
   )
 }
 
-function Header({ view, setView, dark, setDark, alerts, onAlert, onTool }: {
+function Header({ view, setView, dark, setDark, alerts, alertOpen, onAlert, onAlertClose, onAlertSelect, advisorOpen, onAdvisor, onTool }: {
   view: View
   setView: (view: View) => void
   dark: boolean
   setDark: (dark: boolean) => void
   alerts: AlertsResponse | null
+  alertOpen: boolean
   onAlert: () => void
+  onAlertClose: () => void
+  onAlertSelect: (alertId: string, shipId: string) => void
+  advisorOpen: boolean
+  onAdvisor: () => void
   onTool: (tool: Tool) => void
 }) {
   const tabs: { id: View; step: string; zh: string; en: string }[] = [
@@ -301,16 +337,19 @@ function Header({ view, setView, dark, setDark, alerts, onAlert, onTool }: {
         ))}
       </nav>
       <div className="header-tools">
+        <button id="advisor-trigger" className="advisor-trigger" onClick={onAdvisor} aria-expanded={advisorOpen} aria-controls="advisor-panel"><Bot size={16} />AI 顧問<kbd>⌘/Ctrl I</kbd></button>
         <details className="tool-menu">
           <summary><Menu size={16} />工具</summary>
           <div>
-            <button onClick={() => onTool('advisor')}><Bot size={16} />AI 顧問</button>
             <button onClick={() => onTool('inspect')}><ImageUp size={16} />水下判讀</button>
             <button onClick={() => onTool('settings')}><Settings size={16} />設定</button>
           </div>
         </details>
         <button className="icon-button" onClick={() => setDark(!dark)} aria-pressed={dark}>{dark ? <Sun size={16} /> : <Moon size={16} />}<span>{dark ? '亮色' : '深色'}</span></button>
-        <button className="icon-button" onClick={onAlert} aria-label={`警報中心，${alerts?.unread_count ?? 0} 則未讀`}><Bell size={16} />警報{Boolean(alerts?.unread_count) && <b>{alerts?.unread_count}</b>}</button>
+        <div className="alert-popover-wrap">
+          <button id="alert-trigger" className="icon-button" onClick={onAlert} aria-label={`警報通知，${alerts?.unread_count ?? 0} 則未讀`} aria-expanded={alertOpen} aria-controls="alert-popover"><Bell size={16} />警報{Boolean(alerts?.unread_count) && <b>{alerts?.unread_count}</b>}</button>
+          {alertOpen && <AlertPopover alerts={alerts} onClose={onAlertClose} onSelect={onAlertSelect} />}
+        </div>
       </div>
     </header>
   )
@@ -384,12 +423,16 @@ function DiagnoseView({ detail, models, forecasts, primaryModel, setPrimaryModel
     if (!detail) return {}
     const chartText = dark ? '#A7B8C0' : '#4A5A63'
     const chartGrid = dark ? '#2A3B43' : '#D8DFE4'
+    const eventMarkers = layoutTrendEventMarkers(
+      detail.events,
+      Math.max(0.8, detail.current.threshold_pct * .12),
+    )
     const legendNames = ['歷史 Speed Loss']
     const series: NonNullable<EChartsOption['series']> = [{
       name: '歷史 Speed Loss', type: 'line', showSymbol: false, data: detail.series.map((point) => [point.date, point.speed_loss]), lineStyle: { width: 3, color: '#0E5E6F' }, itemStyle: { color: '#0E5E6F' },
       markLine: { silent: true, symbol: 'none', label: { formatter: `清洗門檻 ${detail.current.threshold_pct}%`, color: chartText }, lineStyle: { color: '#A33B2E', type: 'dashed', width: 2 }, data: [{ yAxis: detail.current.threshold_pct }] },
       markArea: { silent: true, itemStyle: { color: dark ? 'rgba(232,144,127,.12)' : 'rgba(163,59,46,.08)' }, data: [[{ yAxis: detail.current.threshold_pct }, { yAxis: 35 }]] },
-      markPoint: { symbol: 'diamond', symbolSize: 14, itemStyle: { color: '#C77400' }, label: { show: true, position: 'top', formatter: '{b}', color: chartText, fontSize: 11 }, data: detail.events.map((event) => ({ name: event.type, value: event.notes, coord: [event.date, Math.max(0, detail.current.threshold_pct * .15)] })) },
+      markPoint: { symbol: 'diamond', symbolSize: 14, itemStyle: { color: '#C77400' }, label: { show: true, position: 'right', distance: 5, formatter: '{b}', color: chartText, fontSize: 11, fontWeight: 700 }, data: eventMarkers.map((event) => ({ name: event.abbreviation, value: event.notes, coord: [event.date, event.y] })) },
     }]
     const colors = ['#C77400', '#A33B2E', '#647984']
     visibleModels.forEach((modelId, index) => {
@@ -439,8 +482,8 @@ function DiagnoseView({ detail, models, forecasts, primaryModel, setPrimaryModel
             <DualInput label="情境船速" value={scenarioSpeed} min={12} max={20} step={0.5} unit="kn" onChange={setScenarioSpeed} />
           </div>
           <EChart option={trendOption} className="main-chart" ariaLabel={`${detail.ship_name} Speed Loss 歷史與多模型預測圖`} />
-          <p className="event-legend"><b aria-hidden="true">◆</b> 黃色菱形代表水下維護事件（PP 螺槳拋光、UWC 水下船殼清洗、UWI 水下檢查）；事件名稱會直接標在圖上。</p>
-          {detail.events.length > 0 && <details className="data-fallback"><summary>查看維護事件說明</summary><ul className="event-list">{detail.events.map((event) => <li key={`${event.date}-${event.type}`}><time>{event.date}</time><b>{event.type}</b><span>{event.notes || '無附註'}</span></li>)}</ul></details>}
+          <p className="event-legend"><b aria-hidden="true">◆</b> 圖上只顯示分層縮寫，避免相近事件互相遮擋：PP 螺槳拋光、UWC 水下船殼清洗、UWI 水下檢查。</p>
+          {detail.events.length > 0 && <details className="data-fallback"><summary>查看維護事件說明</summary><ol className="event-list">{detail.events.map((event, index) => <li key={`${event.date}-${event.type}-${index}`}><time>{event.date}</time><b>{event.type}</b><span>{event.notes || '無附註'}</span></li>)}</ol></details>}
           <details className="data-fallback"><summary>查看圖表資料表</summary><TrendTable detail={detail} forecasts={forecasts} visibleModels={visibleModels} /></details>
         </section>
         <section className="panel attribution-panel">
@@ -677,30 +720,43 @@ function FuelTicker({ fuel, paused, setPaused }: { fuel: FuelPriceResponse; paus
   return <div className={`fuel-ticker market-${fuel.market_status}`} role="region" aria-label="船用燃油價格跑馬燈"><strong><Fuel size={18} /><span>FUEL WATCH<small>{fuel.port} · {statusLabel}</small></span></strong><div className={paused ? 'paused' : ''}><div>{content.length ? content.map((price, index) => <span key={`${price.grade}-${index}`}><b>{price.grade}</b> ${number.format(price.usd_per_ton)} <small>USD/mt · {price.as_of}</small>{price.estimated && <em>EST</em>}</span>) : <span>市場來源暫時無法取得；決策頁使用明確標示的手動情境價。</span>}</div></div><button onClick={() => setPaused(!paused)} aria-pressed={paused}>{paused ? <Play size={16} /> : <Pause size={16} />}<span>{paused ? '繼續' : '暫停'}</span></button></div>
 }
 
-function AlertDrawer({ alerts, open, onClose, onSelect }: { alerts: AlertsResponse | null; open: boolean; onClose: () => void; onSelect: (alertId: string, shipId: string) => void }) {
-  const [width, setWidth] = useState(420)
-  const startResize = (event: ReactPointerEvent<HTMLDivElement>) => {
-    event.currentTarget.setPointerCapture(event.pointerId)
-    const move = (moveEvent: PointerEvent) => setWidth(Math.max(320, Math.min(window.innerWidth * .5, window.innerWidth - moveEvent.clientX)))
-    const stop = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', stop) }
-    window.addEventListener('pointermove', move)
-    window.addEventListener('pointerup', stop)
+function AlertPopover({ alerts, onClose, onSelect }: { alerts: AlertsResponse | null; onClose: () => void; onSelect: (alertId: string, shipId: string) => void }) {
+  const closeAndRestoreFocus = () => {
+    onClose()
+    window.setTimeout(() => document.getElementById('alert-trigger')?.focus())
   }
-  const changeWidth = (delta: number) => setWidth((current) => Math.max(320, Math.min(window.innerWidth * .5, current + delta)))
-  return <aside className={`alert-drawer ${open ? 'open' : ''}`} style={{ width: `min(${width}px, 95vw)` }} aria-hidden={!open} inert={!open} aria-label="警報中心"><div className="drawer-resizer" role="separator" aria-label="調整警報側欄寬度" aria-orientation="vertical" tabIndex={open ? 0 : -1} onPointerDown={startResize} onKeyDown={(event) => { if (event.key === 'ArrowLeft') changeWidth(24); if (event.key === 'ArrowRight') changeWidth(-24) }} /><div className="drawer-heading"><div><span>ALERT CENTER</span><h2>警報中心</h2></div><button onClick={onClose} aria-label="關閉警報中心"><X /></button></div><div className="channel-state"><span>站內 ●</span><span>SES {alerts?.channels.ses === 'configured' ? '●' : '○'}</span><span>Discord {alerts?.channels.discord === 'configured' ? '●' : '○'}</span></div>{alerts?.alerts.map((alert) => <button className={`alert-item ${alert.read ? 'read' : ''}`} key={alert.id} onClick={() => onSelect(alert.id, alert.ship_id)}><span>{alert.severity === 'critical' ? <AlertTriangle /> : <Bell />}</span><strong>{alert.ship_name}</strong><p>{alert.message}</p><small>{alert.created_at}</small></button>)}{!alerts?.alerts.length && <div className="empty-state"><CheckCircle2 />目前沒有警報</div>}</aside>
+  return <section id="alert-popover" className="alert-popover" role="region" aria-labelledby="alert-popover-title"><div className="alert-popover-heading"><div><span>NOTIFICATIONS</span><h2 id="alert-popover-title">警報通知</h2></div><button onClick={closeAndRestoreFocus} aria-label="關閉警報通知"><X size={18} /></button></div><div className="channel-state"><span>站內 ●</span><span>SES {alerts?.channels.ses === 'configured' ? '●' : '○'}</span><span>Discord {alerts?.channels.discord === 'configured' ? '●' : '○'}</span></div><div className="alert-scroll">{alerts?.alerts.map((alert) => <button className={`alert-item ${alert.read ? 'read' : ''}`} key={alert.id} onClick={() => onSelect(alert.id, alert.ship_id)}><span>{alert.severity === 'critical' ? <AlertTriangle /> : <Bell />}</span><strong>{alert.ship_name}</strong><p>{alert.message}</p><small>{alert.created_at}</small></button>)}{!alerts?.alerts.length && <div className="empty-state compact"><CheckCircle2 />目前沒有警報</div>}</div><p className="alert-popover-note">即時警報保留在介面通知匣；Email／Discord 訂閱可在設定中依船隻管理。</p></section>
 }
 
 function ToolDialog({ tool, onClose, shipId, alerts, fuel, models, onModelsChanged, onReportsImported }: { tool: Tool; onClose: () => void; shipId: string; alerts: AlertsResponse | null; fuel: FuelPriceResponse | null; models: ModelInfo[]; onModelsChanged: () => Promise<void>; onReportsImported: () => Promise<void> }) {
   if (!tool) return null
-  return <div className="dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose() }} onKeyDown={(event) => { if (event.key === 'Escape') onClose() }}><section className={`tool-dialog ${tool === 'settings' ? 'settings-dialog' : ''}`} role="dialog" aria-modal="true" aria-labelledby="tool-title"><div className="drawer-heading"><div><span>HULLWATCH TOOL</span><h2 id="tool-title">{tool === 'advisor' ? 'AI 顧問' : tool === 'inspect' ? '水下判讀' : '系統設定'}</h2></div><button onClick={onClose} aria-label="關閉" autoFocus><X /></button></div>{tool === 'advisor' && <AdvisorTool />}{tool === 'inspect' && <InspectTool shipId={shipId} />}{tool === 'settings' && <SettingsTool alerts={alerts} fuel={fuel} models={models} onModelsChanged={onModelsChanged} onReportsImported={onReportsImported} />}</section></div>
+  return <div className="dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose() }} onKeyDown={(event) => { if (event.key === 'Escape') onClose() }}><section className={`tool-dialog ${tool === 'settings' ? 'settings-dialog' : ''}`} role="dialog" aria-modal="true" aria-labelledby="tool-title"><div className="drawer-heading"><div><span>HULLWATCH TOOL</span><h2 id="tool-title">{tool === 'inspect' ? '水下判讀' : '系統設定'}</h2></div><button onClick={onClose} aria-label="關閉" autoFocus><X /></button></div>{tool === 'inspect' && <InspectTool shipId={shipId} />}{tool === 'settings' && <SettingsTool alerts={alerts} fuel={fuel} models={models} onModelsChanged={onModelsChanged} onReportsImported={onReportsImported} />}</section></div>
 }
 
-function AdvisorTool() {
+function AdvisorPanel({ open, shipId, onClose }: { open: boolean; shipId: string; onClose: () => void }) {
   const [question, setQuestion] = useState('這一季哪幾艘船該優先清洗？為什麼？')
-  const [answer, setAnswer] = useState<AdvisorResponse | null>(null)
+  const [messages, setMessages] = useState<{ question: string; answer: AdvisorResponse }[]>([])
   const [busy, setBusy] = useState(false)
-  const submit = async (event: FormEvent) => { event.preventDefault(); setBusy(true); try { setAnswer(await api.advisor(question)) } finally { setBusy(false) } }
-  return <form className="tool-body" onSubmit={submit}><label>用白話詢問船隊資料<textarea value={question} onChange={(event) => setQuestion(event.target.value)} rows={3} /></label><button className="primary-action" disabled={busy || !question.trim()}>{busy ? '查詢資料中…' : '詢問 Bedrock 顧問'}</button>{answer && <article className="advisor-answer" aria-live="polite"><span>{answer.mode.toUpperCase()} MODE</span><p>{answer.answer}</p>{answer.citations.length > 0 && <small>來源：{answer.citations.join('、')}</small>}</article>}</form>
+  const inputRef = useRef<HTMLTextAreaElement>(null)
+  useEffect(() => { if (open) window.setTimeout(() => inputRef.current?.focus(), 220) }, [open])
+  const closeAndRestoreFocus = () => {
+    onClose()
+    window.setTimeout(() => document.getElementById('advisor-trigger')?.focus())
+  }
+  const submit = async (event: FormEvent) => {
+    event.preventDefault()
+    const submittedQuestion = question.trim()
+    if (!submittedQuestion) return
+    setBusy(true)
+    try {
+      const answer = await api.advisor(submittedQuestion)
+      setMessages((current) => [...current, { question: submittedQuestion, answer }])
+      setQuestion('')
+    } finally {
+      setBusy(false)
+    }
+  }
+  return <aside id="advisor-panel" className="advisor-panel" aria-hidden={!open} inert={!open} aria-labelledby="advisor-title"><div className="advisor-heading"><div><span>AI COPILOT</span><h2 id="advisor-title">AI 顧問</h2><small>目前船舶情境：{shipId || '全船隊'}</small></div><button onClick={closeAndRestoreFocus} aria-label="關閉 AI 顧問"><X /></button></div><div className="advisor-context"><Bot size={17} /><span>可詢問風險排序、維護建議與決策依據</span><kbd>Esc</kbd></div><div className="advisor-thread" aria-live="polite">{messages.length === 0 && <div className="advisor-welcome"><Bot size={28} /><strong>從船隊資料開始提問</strong><p>顧問回答會保留在這次瀏覽的對話中，並附上可用的資料來源。</p></div>}{messages.map((message, index) => <div className="advisor-exchange" key={`${message.question}-${index}`}><div className="advisor-question"><span>你</span><p>{message.question}</p></div><article className="advisor-answer"><span>{message.answer.mode.toUpperCase()} MODE</span><p>{message.answer.answer}</p>{message.answer.citations.length > 0 && <small>來源：{message.answer.citations.join('、')}</small>}</article></div>)}</div><form className="advisor-composer" onSubmit={submit}><label htmlFor="advisor-question">詢問船隊資料</label><textarea id="advisor-question" ref={inputRef} value={question} onChange={(event) => setQuestion(event.target.value)} rows={3} placeholder="例如：哪艘船應優先安排清洗？" /><button className="primary-action" disabled={busy || !question.trim()}>{busy ? '查詢資料中…' : '送出問題'}</button></form></aside>
 }
 
 function InspectTool({ shipId }: { shipId: string }) {

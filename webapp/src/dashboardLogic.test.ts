@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { allocateEventLanes, cleaningSavings, fuelHistoryForGrade } from './dashboardLogic'
+import { allocateEventLanes, cleaningSavings, fuelHistoryForGrade, layoutTrendEventMarkers } from './dashboardLogic'
 import type { FuelPriceResponse } from './types'
 
 describe('dashboard behavior', () => {
@@ -21,5 +21,17 @@ describe('dashboard behavior', () => {
     const fuel = { history_by_grade: { LSMGO: [{ date: '2026-07-15', usd_per_ton: 900, source: 'test' }] } } as unknown as FuelPriceResponse
     expect(fuelHistoryForGrade(fuel, 'LSMGO')[0].usd_per_ton).toBe(900)
     expect(fuelHistoryForGrade(fuel, 'VLSFO')).toEqual([])
+  })
+
+  it('stacks nearby Speed Loss maintenance markers into separate lanes', () => {
+    const result = layoutTrendEventMarkers([
+      { date: '2026-07-01', type: 'UWC', notes: '船殼清洗' },
+      { date: '2026-07-01', type: 'PP', notes: '螺槳拋光' },
+      { date: '2026-07-04', type: 'UWI', notes: '水下檢查' },
+    ], 1)
+
+    expect(result.map(({ lane }) => lane)).toEqual([0, 1, 2])
+    expect(new Set(result.map(({ y }) => y)).size).toBe(3)
+    expect(result.map(({ abbreviation }) => abbreviation)).toEqual(['UWC', 'PP', 'UWI'])
   })
 })

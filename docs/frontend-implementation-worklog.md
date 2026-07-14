@@ -19,7 +19,7 @@
 | 1. 新 API 公開契約 | 完成 | models、forecast、schedule、fuel-prices、log、noon-report、alerts 測試通過 |
 | 2. Bridge Ops 殼層 | 完成 | Fleet／Diagnose／Decide 三段導航、主題與響應式版面完成 |
 | 3. 真資料主動線 | 完成 | 15 船真 artifact 接線，loading／error／empty state 完整 |
-| 4. 工具功能 | 完成 | AI 顧問、水下判讀、警報抽屜、五油種 ticker、依船舶訂閱與 SES/Discord 明確發送 |
+| 4. 工具功能 | 完成 | AI 顧問右側 push panel、水下判讀、頂部警報通知匣、五油種 ticker、依船舶訂閱與 SES/Discord 明確發送 |
 | 5. a11y 與部署 | 部分完成 | 鍵盤、focus、表格 fallback、reduced motion、FastAPI mount 與 Docker build stage 完成；瀏覽器與 Docker daemon 待複驗 |
 | 6. Review 與提交 | 完成 | Python 61 tests、前端 build/lint、雙軸 review 均通過並 commit |
 
@@ -118,3 +118,14 @@
 - 驗證：Python **68 passed**；前端 Vitest **3 passed**；`npm run lint` 與 production build 通過。Vite 主 bundle約 788KB（gzip 259KB），code-splitting warning 仍在。
 - 雙軸審查修正：移除直接比對原始碼字串的測試，改測 exported dashboard behavior；DD 一併分 lane、甘特 fallback 補維護／乾塢表格、油價 footer 跟隨所選油種、ROI 使用推薦動作成本與 SL 回復幅度（不再把 PP/UWC 都當完整清洗）、切船期間清空舊 ROI；sparkline 補完整隱藏資料表；通知 store 補結構驗證與寫入鎖。複審無 hard violation。
 - 視覺 QA：in-app Browser backend 列表仍為空；未以其他瀏覽器工具繞過，保留人工點擊與截圖待辦。
+
+## 2026-07-15 第四批：維護標記防碰撞與 AI 顧問側欄
+
+- Speed Loss 維護事件改用與甘特圖一致的 greedy lane 概念：同日或 14 天內的 PP／UWC／UWI 會分配到不同高度，圖上只顯示縮寫，完整日期、事件類型與附註放在圖下方可展開清單。
+- 「查看維護事件說明」清單改為自適應三欄；窄螢幕將附註換行到下一列，長字串允許斷行，避免日期、縮寫與說明互相覆蓋。
+- AI 顧問由 modal 移至常駐右側 panel。桌面開啟時主內容保留並向左縮進 440px（push，不覆蓋）；900px 以下改為完整顧問畫面，可由關閉鍵返回原頁。
+- AI 顧問新增當次瀏覽對話紀錄、目前船舶情境、`Ctrl/Cmd + I` 開關與 `Esc` 關閉；開啟後焦點移至輸入欄，關閉後回到觸發按鈕。
+- 警報不再占用右側欄，改為頂部未讀徽章通知匣。critical 新警報仍可自動展開，點擊警報仍會標為已讀並前往對應船舶；Email／Discord 船舶訂閱維持在設定頁。
+- a11y：面板與通知匣均有 `aria-expanded`／`aria-controls`、命名區域、可見焦點、Esc 行為、關閉後焦點復原；窄螢幕不以 overlay 遮蓋主內容。
+- 驗證：Vitest **4 passed**；`npm run lint` 與 production build 通過。Vite 主 bundle code-splitting warning 仍在。
+- 視覺 QA：再次依 in-app Browser 流程檢查，但可用 backend 列表為空；未使用其他瀏覽器工具繞過。需由使用者本機確認實際圖表標記間距、桌面 push 與 900px 以下切頁效果。
