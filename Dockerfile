@@ -1,3 +1,11 @@
+FROM node:22-slim AS frontend-build
+
+WORKDIR /build/webapp
+COPY webapp/package.json webapp/package-lock.json ./
+RUN npm ci
+COPY webapp/ ./
+RUN npm run build
+
 FROM python:3.10-slim
 
 WORKDIR /srv/hullwatch
@@ -7,6 +15,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY app ./app
 COPY frontend ./frontend
+COPY --from=frontend-build /build/webapp/dist ./webapp/dist
 COPY kb ./kb
 COPY deploy/start.sh ./start.sh
 

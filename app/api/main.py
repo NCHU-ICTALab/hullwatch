@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
+from datetime import date
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse
@@ -18,6 +19,15 @@ from app.llm.retrieval import get_retriever
 
 class AskBody(BaseModel):
     question: str
+
+
+class NoonReportBody(BaseModel):
+    ship_id: str
+    report_date: date
+    avg_speed: float
+    daily_foc: float
+    wind_scale: float
+    full_speed_hours: float
 
 
 @asynccontextmanager
@@ -60,6 +70,11 @@ def fleet():
     return _svc(app.state).fleet_overview()
 
 
+@app.get("/api/models")
+def models():
+    return _svc(app.state).model_registry()
+
+
 @app.get("/api/ship/{ship_id}")
 def ship(ship_id: str):
     try:
@@ -68,12 +83,69 @@ def ship(ship_id: str):
         raise HTTPException(404, f"未知船舶 {ship_id}")
 
 
-@app.get("/api/roi")
-def roi(ship_id: str | None = None):
+@app.get("/api/ship/{ship_id}/forecast")
+def ship_forecast(ship_id: str, model: str = "clean-baseline", speed: float | None = None):
     try:
-        return _svc(app.state).roi(ship_id)
+        return _svc(app.state).ship_forecast(ship_id, model, speed)
+    except KeyError as exc:
+        raise HTTPException(404, f"未知船舶或模型 {exc.args[0]}")
+
+
+@app.get("/api/ship/{ship_id}/log")
+def ship_log(ship_id: str, days: int = 30):
+    try:
+        return _svc(app.state).ship_log(ship_id, max(1, min(days, 365)))
+    except KeyError:
+        raise HTTPException(404, f"未知船舶 {ship_id}")
+
+
+@app.post("/api/noon-report", status_code=201)
+def noon_report(body: NoonReportBody):
+    if body.avg_speed <= 0 or body.daily_foc <= 0 or body.full_speed_hours <= 0:
+        raise HTTPException(422, "航速、DailyFOC 與全速時數必須大於 0")
+    try:
+        return _svc(app.state).ingest_noon_report(body.model_dump(mode="json"))
+    except KeyError:
+        raise HTTPException(404, f"未知船舶 {body.ship_id}")
+
+
+@app.get("/api/roi")
+def roi(
+    ship_id: str | None = None,
+    fuel_price: float | None = None,
+    cleaning_cost: float | None = None,
+):
+    if fuel_price is not None and not 100 <= fuel_price <= 3000:
+        raise HTTPException(422, "油價必須介於 100–3000 USD/mt")
+    if cleaning_cost is not None and not 0 <= cleaning_cost <= 10_000_000:
+        raise HTTPException(422, "清潔成本超出允許範圍")
+    try:
+        return _svc(app.state).roi(ship_id, fuel_price, cleaning_cost)
     except IndexError:
         raise HTTPException(404, f"未知船舶 {ship_id}")
+
+
+@app.get("/api/schedule")
+def schedule():
+    return _svc(app.state).maintenance_schedule()
+
+
+@app.get("/api/fuel-prices")
+def fuel_prices():
+    return _svc(app.state).fuel_prices()
+
+
+@app.get("/api/alerts")
+def alerts():
+    return _svc(app.state).alerts()
+
+
+@app.post("/api/alerts/{alert_id}/read")
+def mark_alert_read(alert_id: str):
+    try:
+        return _svc(app.state).mark_alert_read(alert_id)
+    except KeyError:
+        raise HTTPException(404, f"未知警報 {alert_id}")
 
 
 @app.post("/api/advisor")
@@ -105,4 +177,6 @@ def index():
     return FileResponse(config.FRONTEND_DIR / "index.html")
 
 
+if (config.FRONTEND_DIR / "assets").exists():
+    app.mount("/assets", StaticFiles(directory=config.FRONTEND_DIR / "assets"), name="assets")
 app.mount("/static", StaticFiles(directory=config.FRONTEND_DIR), name="static")

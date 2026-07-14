@@ -9,7 +9,12 @@ BASE_DIR = Path(__file__).resolve().parents[1]
 DATA_DIR = Path(os.environ.get("HW_DATA_DIR", BASE_DIR / "data"))
 ARTIFACT_DIR = DATA_DIR / "artifacts"
 KB_DIR = Path(os.environ.get("HW_KB_DIR", BASE_DIR / "kb"))
-FRONTEND_DIR = BASE_DIR / "frontend"
+REACT_DIST_DIR = BASE_DIR / "webapp" / "dist"
+LEGACY_FRONTEND_DIR = BASE_DIR / "frontend"
+FRONTEND_DIR = Path(os.environ.get(
+    "HW_FRONTEND_DIR",
+    REACT_DIST_DIR if (REACT_DIST_DIR / "index.html").exists() else LEGACY_FRONTEND_DIR,
+))
 
 
 def _f(name: str, default: float) -> float:
@@ -31,6 +36,9 @@ BASELINE_MIN_ROWS = int(_f("HW_BASELINE_MIN_ROWS", 10))  # 少於此筆數的基
 # --- 經濟參數（prototype 預設值，當天可改） ---
 VLSFO_PRICE_USD = _f("HW_FUEL_PRICE", 600.0)           # USD / 噸
 CLEANING_COST_USD = _f("HW_CLEAN_COST", 20000.0)       # 單次水下清潔
+PP_COST_USD = _f("HW_PP_COST", 8000.0)
+UWC_COST_USD = _f("HW_UWC_COST", CLEANING_COST_USD)
+COMBINED_CLEAN_COST_USD = _f("HW_COMBINED_CLEAN_COST", 25000.0)
 CLEANING_THRESHOLD_PCT = _f("HW_THRESHOLD", 10.0)      # Speed Loss 清洗門檻 %
 WATCH_WINDOW_DAYS = int(_f("HW_WATCH_WINDOW", 60))     # 幾天內會越門檻列為「留意」
 SMOOTH_WINDOW_DAYS = int(_f("HW_SMOOTH_WINDOW", 14))   # Speed Loss 滾動平滑窗口（真資料噪音大）
@@ -47,3 +55,7 @@ BEDROCK_MODEL_ID = _s("HW_BEDROCK_MODEL", "us.anthropic.claude-sonnet-4-5-202509
 BEDROCK_REGION = _s("HW_BEDROCK_REGION", "us-east-1")
 RETRIEVER = _s("HW_RETRIEVER", "local")                # local | bedrock_kb
 BEDROCK_KB_ID = _s("HW_BEDROCK_KB_ID", "")
+
+# --- notifications (empty means configured channel is disabled) ---
+SES_FROM_EMAIL = _s("HW_SES_FROM_EMAIL", "")
+DISCORD_WEBHOOK_URL = _s("HW_DISCORD_WEBHOOK_URL", "")

@@ -1,0 +1,17 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+@import "@fontsource-variable/geist";
+
+@custom-variant dark (&:is(.dark *));
+
+html {
+  font-family: "Geist Variable", "Noto Sans TC", system-ui, sans-serif;
+  background: #f4f6f8;
+  color-scheme: light;
+}
+
+html.dark {
+  background: #0f171b;
+  color-scheme: dark;
+}
