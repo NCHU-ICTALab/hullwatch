@@ -17,7 +17,17 @@
   - 驗證＝遮蔽窗口模擬（對訓練船重置事件遮 12 天）：**事件平均 MAPE 4.65% / micro 5.63% / 偏差 +0.6%**
   - 合理性體檢：98/102 落在該船同航速可見油耗區間；1 格高滑差（RPM64/11kn）經 RPM 對照確認物理正確
 - ✅ 交件結果檔重出（真資料版）；43 tests passed
-- ⬜ Optuna 對 predict102 調參；簡報數字回填；Bedrock 正式環境接入；EC2 重部署
+- ✅ **EDA notebook**（notebooks/eda_yangming.ipynb，9 圖對準評分維度）。
+  關鍵發現：事件類型因果指紋（清洗 −2.9pp／拋光 −1.1pp／**純檢查 +4.4pp 不降反升**＝命題提示的對照組）
+- ✅ **模型分析 notebook**（notebooks/model_analysis.ipynb，圖 10–13）：
+  - SHAP 主要影響因子：轉速壓倒性主導（遮蔽日可見 → MAPE 能低的原因）
+  - 發現共線性：髒污訊號被 RPM 吸收，時鐘特徵尾端失真 → **反事實改用乾淨基準模型**
+    （= 儀表板超額成本，三介面同數字），船殼/螺旋槳以事件效果比分割（65:35）
+  - 殘差近隨機（對航速/距清洗無趨勢）
+- ✅ **Optuna 調參**（scripts/tune_predict102.py，40 trials，目標=遮蔽窗口 micro MAPE）：
+  **5.76% → 3.99%**（事件平均 3.65%、最差 6.21%、偏差 −0.75%）。
+  最佳參數存 data/artifacts/best_params_102.json，predict102 自動採用；提交檔已重出
+- ⬜ 簡報數字回填；Bedrock 正式環境接入；EC2 重部署
 
 ---
 

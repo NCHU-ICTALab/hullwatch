@@ -88,11 +88,24 @@ def _feature_cols(df: pd.DataFrame) -> list[str]:
     return FEATURES + [c for c in df.columns if c.startswith("ship_S")]
 
 
-def _fit(train: pd.DataFrame, seed: int = 42) -> tuple[XGBRegressor, list[str]]:
+def _load_tuned_params() -> dict:
+    """Optuna 產出的最佳參數（data/artifacts/best_params_102.json）存在則覆寫預設。"""
+    p = config.ARTIFACT_DIR / "best_params_102.json"
+    if p.exists():
+        import json
+
+        return json.loads(p.read_text())
+    return {}
+
+
+def _fit(train: pd.DataFrame, seed: int = 42,
+         params: dict | None = None) -> tuple[XGBRegressor, list[str]]:
     cols = _feature_cols(train)
+    if params is None:
+        params = {**PARAMS, **_load_tuned_params()}
     rng = np.random.default_rng(seed)
     mask = rng.random(len(train)) < 0.9
-    m = XGBRegressor(**PARAMS, random_state=seed)
+    m = XGBRegressor(**params, random_state=seed)
     m.fit(train.loc[mask, cols], train.loc[mask, TARGET],
           eval_set=[(train.loc[~mask, cols], train.loc[~mask, TARGET])], verbose=False)
     return m, cols
@@ -111,8 +124,15 @@ def _trainable(df: pd.DataFrame) -> pd.DataFrame:
               & (df[TARGET] > MIN_SANE_FOC)]
 
 
-def masked_window_validation(df: pd.DataFrame, window_days: int = 12) -> pd.DataFrame:
-    """模擬真實遮蔽：逐一遮蔽訓練船的「重置事件後窗口」，訓練→預測→評估。"""
+def masked_window_validation(df: pd.DataFrame, window_days: int = 12,
+                             params: dict | None = None,
+                             collect_rows: list | None = None) -> pd.DataFrame:
+    """模擬真實遮蔽：逐一遮蔽訓練船的「重置事件後窗口」，訓練→預測→評估。
+
+    Args:
+        params: 覆寫模型參數（Optuna 調參用）。
+        collect_rows: 傳入 list 時，逐列塞入 (hold row, pred) 供殘差分析。
+    """
     events = pd.read_csv(config.DATA_DIR / "raw" / "events.csv", parse_dates=[schema.EVENT_DATE])
     resets = events[events[schema.EVENT_TYPE].isin(schema.RESET_EVENTS)]
     train_all = _trainable(df)
@@ -125,8 +145,12 @@ def masked_window_validation(df: pd.DataFrame, window_days: int = 12) -> pd.Data
                          & train_all[schema.REPORT_DATE].between(lo, hi)]
         if len(hold) < 2:
             continue
-        model, cols = _fit(train_all.drop(hold.index))
+        model, cols = _fit(train_all.drop(hold.index), params=params)
         pred = model.predict(hold[cols])
+        if collect_rows is not None:
+            h = hold.copy()
+            h["pred"] = pred
+            collect_rows.append(h)
         err = (pred - hold[TARGET]) / hold[TARGET]
         rows.append({"ship": e[schema.EVENT_SHIP_ID], "event": e[schema.EVENT_TYPE],
                      "date": e[schema.EVENT_DATE].date(), "n": len(hold),
