@@ -1,5 +1,32 @@
 # WORKLOG — 賽前走路骨架建置與比賽日進度
 
+## 2026-07-14（比賽日 1 晚間）— 儀表板升級 + 比賽環境接入
+
+- ✅ **儀表板升級**（commit 582b8f9）：白色主題預設＋深色切換、船殼/螺旋槳歸因分割條、
+  維護成效卡（UWI 標「無介入・對照」）、船隊篩選（狀態＋門檻滑桿）、ROI 堆疊條
+- ✅ **比賽環境探測**（帳號 961190339854 / WSParticipantRole / us-east-1）：
+  **Bedrock 全開（121 模型，Sonnet 4.5 可用）**；EC2 乾淨；無 IAM instance profile / S3
+- ✅ **AI 顧問正式上線 agent 模式**：LangGraph × Bedrock Claude Sonnet 4.5，
+  真工具調用＋真數字回答；水下判讀 vision 實測可用（合成藤壺圖 → moderate 45% ＋
+  與資料面交叉驗證誠實回報不一致）。修：system prompt 加工具欄位字典防誤讀
+- ✅ **實驗套件**（scripts/run_experiments.py）：窗口結構/錨點資訊集/W1W2 分組/
+  五模型比較/隨機 kfold 對照/相似度/5-seed 中位數，本地煙霧測試通過
+  - 窗口結構發現：遮蔽區塊 15–38 天，但區塊前後 1 天內即有可見油耗日 → 錨點可行
+- ✅ **比賽環境訓練機**（scripts/launch_train_ec2.py）：S3 presigned URL 傳資料
+  （機器零憑證）、tag 隔離、無 inbound；c6i.4xlarge 跑全套實驗中
+- ✅ **實驗結果（比賽環境 EC2 v2 跑完 2.3 分鐘 + 本地複核；v1 卡在缺 libgomp，v2 加 log 心跳）**：
+  - 模型比較（遮蔽窗口 micro MAPE）：**XGB ~4.1% >> LGBM 5.6 > RF 7.2 ≈ Ridge 7.1 > 物理基準 7.8**
+  - 資訊集：同日(A) 與 前後錨點(C) 跨環境互換名次（4.0–4.2%，統計打平）；B(僅前錨) 較差
+  - 分組公平比較（pooled 在該組窗口 vs 專屬模型）：**pooled 雙勝**（W1 5.33 vs 6.18；W2 3.17 vs 3.52）
+    → 姊妹船共用模型 + one-hot 是對的；初版「不公平比較」曾誤判 W2 該分組——已修
+  - 隨機 k-fold 4.20% ≈ 遮蔽窗口 4.19%：**本任務 k-fold 沒有嚴重虛胖**（同日物理映射、
+    非趨勢外推）——誠實結論進簡報，並說明仍以任務同分佈的遮蔽窗口為準
+  - 相似度：S21↔S2(0.90)、S22↔S5(0.93)、S23↔S11(0.72)（簡報遷移合理性素材）
+  - **最終提交候選：XGB × {A,C} × 5 seeds 共 10 模型中位數 = MAPE 4.011%**
+    → results_local/predictions_final.csv（已複製到 data/submission/；凍結 7/15 21:00 前定案）
+  - ⚠️ 提交答案與 results 目錄已 gitignore——公開 repo 不放預測值防抄
+- ⬜ alert 引擎（SES+Discord）+ 日報上傳 API + 反事實接 ROI（明日）
+
 ## 2026-07-14（比賽日 1）— 真資料接入
 
 任務比預期多一項：**102 格遮蔽油耗預測**（S21–S23 養護後窗口、指定提交格式）。

@@ -6,3 +6,5 @@ data/
 .aws/
 *.egg-info/
 .pytest_cache/
+results_local/
+results_ec2/

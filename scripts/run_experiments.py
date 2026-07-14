@@ -167,8 +167,8 @@ def evaluate(df: pd.DataFrame, feats: list[str], model_name: str,
     """遮蔽窗口模擬 → micro MAPE。ships 限制訓練/評估範圍（分組實驗用）。"""
     d = df if ships is None else df[df[schema.SHIP_ID].isin(ships)]
     folds = masked_folds(d, window_days)
-    errs = []
-    for hold_idx, _meta in folds:
+    errs, err_grp = [], {"W1": [], "W2": []}
+    for hold_idx, meta in folds:
         dd = d
         if use_anchor_exclude and any(f.startswith("anchor") for f in feats):
             dd = add_anchor_features(d, exclude=hold_idx)
@@ -180,9 +180,38 @@ def evaluate(df: pd.DataFrame, feats: list[str], model_name: str,
         m = make_model(model_name) if model_name != "physics" else PhysicsBaseline()
         m.fit(X_tr, train[TARGET])
         pred = m.predict(X_ho)
-        errs.extend((np.asarray(pred) - hold[TARGET]) / hold[TARGET])
+        e = list((np.asarray(pred) - hold[TARGET]) / hold[TARGET])
+        errs.extend(e)
+        err_grp["W1" if meta["ship"] in W1 else "W2"].extend(e)
     errs = np.abs(np.asarray(errs, dtype=float))
-    return {"micro_mape_pct": round(float(errs.mean()) * 100, 3), "n_rows": len(errs)}
+    out = {"micro_mape_pct": round(float(errs.mean()) * 100, 3), "n_rows": len(errs)}
+    for grp, ge in err_grp.items():
+        if ge:
+            out[f"mape_{grp}"] = round(float(np.abs(np.asarray(ge, dtype=float)).mean()) * 100, 3)
+    return out
+
+
+def evaluate_ensemble(df: pd.DataFrame, featsets: list[list[str]], seeds: list[int],
+                      model_name: str = "xgb", window_days: int = 12) -> dict:
+    """最終提交配置的成績：每 fold 以 (featsets × seeds) 全模型預測中位數評估。"""
+    folds = masked_folds(df, window_days)
+    errs = []
+    for hold_idx, _meta in folds:
+        preds = []
+        for feats in featsets:
+            dd = df
+            if any(f.startswith("anchor") for f in feats):
+                dd = add_anchor_features(df, exclude=hold_idx)
+            train = _trainable(dd).drop(hold_idx, errors="ignore")
+            hold = dd.loc[[i for i in hold_idx if i in dd.index]]
+            for seed in seeds:
+                m = make_model(model_name, seed=seed)
+                m.fit(train[feats], train[TARGET])
+                preds.append(np.asarray(m.predict(hold[feats])))
+        med = np.median(np.vstack(preds), axis=0)
+        hold = df.loc[[i for i in hold_idx if i in df.index]]
+        errs.extend(np.abs((med - hold[TARGET]) / hold[TARGET]))
+    return {"micro_mape_pct": round(float(np.mean(errs)) * 100, 3), "n_rows": len(errs)}
 
 
 def random_kfold_mape(df: pd.DataFrame, feats: list[str], model_name: str) -> float:
@@ -291,36 +320,49 @@ def main(out_dir: Path, quick: bool):
     w1_ships = W1
     w2_ships = [s for s in df[schema.SHIP_ID].unique() if s not in W1]
     # 分組 vs pooled 以 benchmark 決定；預測用全量錨點特徵
+    # 公平比較：專屬模型在該組窗口 vs pooled 模型在「同一批」該組窗口
     use_group = {}
     for grp, ships in [("W1", w1_ships), ("W2", w2_ships)]:
         gname = f"{grp}_only"
         grow = grid_df[grid_df.grouping == gname]
-        pooled = float(best_pooled.micro_mape_pct)
-        use_group[grp] = (len(grow) > 0
-                          and float(grow.micro_mape_pct.iloc[0]) < pooled)
+        pooled_grp = best_pooled.get(f"mape_{grp}")
+        use_group[grp] = (len(grow) > 0 and pooled_grp is not None
+                          and float(grow.micro_mape_pct.iloc[0]) < float(pooled_grp))
+        if pooled_grp is not None and len(grow):
+            print(f"  {grp}: pooled@{grp}窗口={pooled_grp}% vs 專屬={grow.micro_mape_pct.iloc[0]}%"
+                  f" → {'專屬' if use_group[grp] else 'pooled'}")
     report["use_group_models"] = use_group
+
+    # 最終 ensemble：seeds × {A_same_day, C_pre_post_anchor}（A/C 跨環境互換名次＝統計打平，
+    # 中位數同時對沖 seed 與資訊集選擇），分組依公平比較結果（pooled 勝則全隊訓練）
+    seeds = [42] if quick else [42, 7, 2024, 555, 31337]
+    final_featsets = [infosets["A_same_day"]] if quick else \
+        [infosets["A_same_day"], infosets["C_pre_post_anchor"]]
+    ens = evaluate_ensemble(df, final_featsets, seeds, best_pooled.model)
+    report["final_ensemble_mape_pct"] = ens["micro_mape_pct"]
+    print(f"  最終 ensemble（{len(final_featsets)}×{len(seeds)} 模型中位數）"
+          f"遮蔽窗口 MAPE = {ens['micro_mape_pct']}%")
 
     key = df.set_index([schema.SHIP_ID, "day"])
     preds = {}
-    for seed in ([42] if quick else [42, 7, 2024, 555, 31337]):
-        for grp, ships in [("W1", w1_ships), ("W2", w2_ships)]:
-            sub = df[df[schema.SHIP_ID].isin(ships)] if use_group[grp] else df
-            train = _trainable(sub)
-            m = make_model(best_pooled.model, seed=seed)
-            m.fit(train[best_feats], train[TARGET])
-            for _, t in targets.iterrows():
-                if (t.ship_id in ships) != (grp == ("W1" if t.ship_id in W1 else "W2")):
-                    continue
-                if t.ship_id not in ships:
-                    continue
-                r = key.loc[(t.ship_id, t.day)]
-                if isinstance(r, pd.DataFrame):
-                    r = r.iloc[0]
-                if float(r["stw"]) <= MIN_SANE_STW:
-                    continue  # 漂航日走 predict102 的專用估計器（沿用現有提交值）
-                rate = float(m.predict(pd.DataFrame([r[best_feats].astype(float)]))[0])
-                preds.setdefault((t.ship_id, int(t.day), t.fuel_type), []).append(
-                    rate * float(r[schema.HOURS_FULL_SPEED]) / 24.0)
+    for feats_i in final_featsets:
+        for seed in seeds:
+            for grp, ships in [("W1", w1_ships), ("W2", w2_ships)]:
+                sub = df[df[schema.SHIP_ID].isin(ships)] if use_group[grp] else df
+                train = _trainable(sub)
+                m = make_model(best_pooled.model, seed=seed)
+                m.fit(train[feats_i], train[TARGET])
+                for _, t in targets.iterrows():
+                    if t.ship_id not in ships:
+                        continue
+                    r = key.loc[(t.ship_id, t.day)]
+                    if isinstance(r, pd.DataFrame):
+                        r = r.iloc[0]
+                    if float(r["stw"]) <= MIN_SANE_STW:
+                        continue  # 漂航日走 predict102 的專用估計器（沿用現有提交值）
+                    rate = float(m.predict(pd.DataFrame([r[feats_i].astype(float)]))[0])
+                    preds.setdefault((t.ship_id, int(t.day), t.fuel_type), []).append(
+                        rate * float(r[schema.HOURS_FULL_SPEED]) / 24.0)
     # 併回（漂航日沿用既有 predictions.csv）
     existing = pd.read_csv(config.DATA_DIR / "submission" / "predictions.csv")
     rows = []
