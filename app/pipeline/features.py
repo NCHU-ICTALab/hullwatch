@@ -35,6 +35,44 @@ def clean_reference_stats(aligned_filtered: pd.DataFrame) -> pd.DataFrame:
     return stats
 
 
+def ensure_baselines(aligned_filtered: pd.DataFrame, min_rows: int) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """為缺乏可見清洗後基準的船建立「偽基準」。
+
+    背景：真資料的遮蔽窗口刻意蓋住部分船的養護後期間（S21/S22），另有船
+    在重置事件後 45 天內無合格天氣列（S9）。基準列 < min_rows 的船，改取
+    其自身「最佳效率日」為參考期：吃水在該船中位數 ±15% 內、foc/V³ 最低
+    的 10%（至少 min_rows×2 列）。ISO 19030 的 Speed Loss 本就相對參考期，
+    此 fallback 把零點定在「該船可觀測到的最佳狀態」，語意一致且可解釋。
+
+    Returns:
+        (baseline_flag 已更新的 DataFrame, refs 含 baseline_source 欄)。
+    """
+    df = aligned_filtered.copy()
+    foc_per_v3 = df[schema.DAILY_FOC] / df[schema.AVG_SPEED] ** 3
+    counts = df[df["baseline_flag"]].groupby(schema.SHIP_ID).size()
+    fallback_ships = []
+    for ship_id, grp in df.groupby(schema.SHIP_ID):
+        if counts.get(ship_id, 0) >= min_rows:
+            continue
+        fallback_ships.append(ship_id)
+        cand = grp
+        if schema.MEAN_DRAFT in grp.columns and grp[schema.MEAN_DRAFT].notna().any():
+            med = grp[schema.MEAN_DRAFT].median()
+            near = grp[grp[schema.MEAN_DRAFT].between(med * 0.85, med * 1.15)]
+            if len(near) >= min_rows * 2:
+                cand = near
+        n = max(min_rows * 2, int(len(cand) * 0.10))
+        chosen = foc_per_v3.loc[cand.index].nsmallest(min(n, len(cand))).index
+        df.loc[df[schema.SHIP_ID] == ship_id, "baseline_flag"] = False
+        df.loc[chosen, "baseline_flag"] = True
+    refs = clean_reference_stats(df)
+    refs["baseline_source"] = ["best-decile" if s in fallback_ships else "post-clean"
+                               for s in refs.index]
+    if fallback_ships:
+        print(f"[info] 偽基準（最佳效率日）生效: {fallback_ships}")
+    return df, refs
+
+
 def build_features(aligned_filtered: pd.DataFrame, refs: pd.DataFrame) -> pd.DataFrame:
     """把觀測相對化為模型特徵。缺 draft 欄時 draft_rel 固定為 1。
 

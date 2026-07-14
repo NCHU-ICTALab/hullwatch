@@ -120,8 +120,11 @@ class CleanBaselineModel:
         return inst
 
 
-def smooth_speed_loss(scored: pd.DataFrame, window: int = 7) -> pd.DataFrame:
+def smooth_speed_loss(scored: pd.DataFrame, window: int | None = None) -> pd.DataFrame:
     """儀表板用的滾動中位數平滑（抗單日雜訊）。"""
+    from app import config
+
+    window = window or config.SMOOTH_WINDOW_DAYS
     scored = scored.sort_values([schema.SHIP_ID, schema.REPORT_DATE]).copy()
     scored["speed_loss_smooth"] = scored.groupby(schema.SHIP_ID)["speed_loss_pct"].transform(
         lambda s: s.rolling(window, min_periods=3).median()

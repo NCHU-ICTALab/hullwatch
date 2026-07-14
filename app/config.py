@@ -33,6 +33,7 @@ VLSFO_PRICE_USD = _f("HW_FUEL_PRICE", 600.0)           # USD / 噸
 CLEANING_COST_USD = _f("HW_CLEAN_COST", 20000.0)       # 單次水下清潔
 CLEANING_THRESHOLD_PCT = _f("HW_THRESHOLD", 10.0)      # Speed Loss 清洗門檻 %
 WATCH_WINDOW_DAYS = int(_f("HW_WATCH_WINDOW", 60))     # 幾天內會越門檻列為「留意」
+SMOOTH_WINDOW_DAYS = int(_f("HW_SMOOTH_WINDOW", 14))   # Speed Loss 滾動平滑窗口（真資料噪音大）
 ROI_HORIZON_DAYS = int(_f("HW_ROI_HORIZON", 180))
 CO2_PER_TON_FUEL = _f("HW_CO2_FACTOR", 3.114)          # 噸 CO₂ / 噸 VLSFO
 

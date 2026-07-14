@@ -15,7 +15,7 @@ import pandas as pd
 from app import config, schema
 from app.pipeline.baseline import CleanBaselineModel, smooth_speed_loss
 from app.pipeline.events import align_events
-from app.pipeline.features import build_features, clean_reference_stats
+from app.pipeline.features import build_features, ensure_baselines
 from app.pipeline.labeling import fouling_levels, label
 from app.pipeline.roi import days_to_threshold, excess_cost_per_day, fit_growth_rate
 from app.pipeline.validation import time_blocked
@@ -52,10 +52,7 @@ def prepare_features(raw_dir: Path) -> tuple[pd.DataFrame, pd.DataFrame, pd.Data
     events = events_raw.copy()
     events[schema.EVENT_DATE] = pd.to_datetime(events[schema.EVENT_DATE])
     aligned = align_events(filtered, events, config.BASELINE_WINDOW_DAYS)
-    refs = clean_reference_stats(aligned)
-    weak = refs[refs["n_baseline_rows"] < config.BASELINE_MIN_ROWS]
-    if len(weak):
-        print(f"[warn] 基準樣本不足的船（仍照常評分，但基準較不可靠）: {list(weak.index)}")
+    aligned, refs = ensure_baselines(aligned, config.BASELINE_MIN_ROWS)
     feat = build_features(aligned, refs)
     return feat, refs, events, truth
 
