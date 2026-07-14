@@ -36,6 +36,10 @@ class FleetService:
         self.scored = pd.read_csv(d / "scored.csv", parse_dates=[schema.REPORT_DATE])
         self.events = pd.read_csv(d / "events.csv", parse_dates=[schema.EVENT_DATE])
         self.summary = json.loads((d / "summary.json").read_text())
+        self.prop_share = float(self.summary.get("prop_share", 0.3))
+        eff_p = d / "maintenance_effects.csv"
+        self.effects = (pd.read_csv(eff_p, parse_dates=["event_date"])
+                        if eff_p.exists() else pd.DataFrame())
         self.roi_params = RoiParams(
             fuel_price_usd=config.VLSFO_PRICE_USD,
             cleaning_cost_usd=config.CLEANING_COST_USD,
@@ -120,9 +124,26 @@ class FleetService:
         dtt = None if pd.isna(r.days_to_threshold) else int(r.days_to_threshold)
         status = _status(float(r.current_speed_loss_pct), dtt)
         attribution = self._attribution(ship_id)
+        # 船殼 vs 螺旋槳分割（事件效果比，命題檢查表第 2 點）
+        sl = float(r.current_speed_loss_pct)
+        hull_prop = {
+            "hull_pp": round(sl * (1 - self.prop_share), 2),
+            "prop_pp": round(sl * self.prop_share, 2),
+            "prop_share": self.prop_share,
+        }
+        eff = (self.effects[self.effects["ship_id"] == ship_id]
+               .sort_values("event_date", ascending=False)
+               if len(self.effects) else pd.DataFrame())
         return {
             "ship_id": ship_id, "ship_name": r.ship_name,
             "status": status, "fouling_level": r.fouling_level,
+            "hull_prop": hull_prop,
+            "maintenance_effects": [
+                {"date": x.event_date.strftime("%Y-%m-%d"), "type": x.event_type,
+                 "orig_type": x.orig_type, "pre_pp": x.pre_pp, "post_pp": x.post_pp,
+                 "delta_pp": x.delta_pp}
+                for x in eff.itertuples()
+            ],
             "current": {
                 "speed_loss_pct": float(r.current_speed_loss_pct),
                 "days_since_clean": int(r.days_since_clean),
@@ -185,6 +206,8 @@ class FleetService:
             per_ship.append({
                 "ship_id": r.ship_id, "ship_name": r.ship_name,
                 "excess_cost_per_day": float(r.excess_cost_per_day),
+                "hull_usd": round(float(r.excess_cost_per_day) * (1 - self.prop_share), 0),
+                "prop_usd": round(float(r.excess_cost_per_day) * self.prop_share, 0),
                 "best_day": c["best_day"], "payback_days": c["payback_days"],
             })
         return {
@@ -195,5 +218,6 @@ class FleetService:
                 "annual_saving_potential_usd": round(annual_saving, 0),
                 "fuel_price_usd": config.VLSFO_PRICE_USD,
                 "cleaning_cost_usd": config.CLEANING_COST_USD,
+                "prop_share": self.prop_share,
             },
         }

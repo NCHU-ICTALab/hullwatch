@@ -22,6 +22,52 @@ from app.pipeline.validation import time_blocked
 from app.synth.generator import GeneratorConfig, generate
 
 
+def maintenance_effects(scored: pd.DataFrame, events: pd.DataFrame,
+                        window_days: int = 60, min_n: int = 5) -> pd.DataFrame:
+    """每個養護事件前後 window 天的平滑 Speed Loss 中位數比較（ISO 19030 維護成效 KPI）。
+
+    notes 開頭若帶原始事件類型（如 "UWC+PP; ..."，ingest_yangming 的格式）則一併保留，
+    供船殼/螺旋槳效果比估計；合成資料無此格式時 orig_type 退回 canonical。
+    """
+    rows = []
+    for _, e in events.iterrows():
+        g = scored[scored[schema.SHIP_ID] == e[schema.EVENT_SHIP_ID]]
+        d = e[schema.EVENT_DATE]
+        pre = g[(g[schema.REPORT_DATE] < d)
+                & (g[schema.REPORT_DATE] >= d - pd.Timedelta(days=window_days))]["speed_loss_smooth"].dropna()
+        post = g[(g[schema.REPORT_DATE] > d)
+                 & (g[schema.REPORT_DATE] <= d + pd.Timedelta(days=window_days))]["speed_loss_smooth"].dropna()
+        if len(pre) < min_n or len(post) < min_n:
+            continue
+        notes = str(e.get(schema.EVENT_NOTES, "") or "")
+        orig = notes.split(";")[0].strip() if ";" in notes else e[schema.EVENT_TYPE]
+        rows.append({
+            "ship_id": e[schema.EVENT_SHIP_ID],
+            "event_date": d,
+            "event_type": e[schema.EVENT_TYPE],
+            "orig_type": orig,
+            "pre_pp": round(float(pre.median()), 2),
+            "post_pp": round(float(post.median()), 2),
+            "delta_pp": round(float(post.median() - pre.median()), 2),
+        })
+    out = pd.DataFrame(rows, columns=["ship_id", "event_date", "event_type", "orig_type",
+                                      "pre_pp", "post_pp", "delta_pp"])
+    # 複合事件（UWI+PP 等）在 canonical events 拆成兩列，效果只算一次
+    return out.drop_duplicates(subset=["ship_id", "event_date", "orig_type"]).reset_index(drop=True)
+
+
+def estimate_prop_share(effects: pd.DataFrame, default: float = 0.3) -> float:
+    """船殼 vs 螺旋槳的效果占比：清洗類 vs 純拋光的中位改善幅度比。"""
+    if effects.empty:
+        return default
+    uwc = effects[effects["orig_type"].isin(["UWC", "UWC+PP", "cleaning"])]["delta_pp"]
+    pp = effects[effects["orig_type"].isin(["PP", "propeller_polish"])]["delta_pp"]
+    uwc_drop = max(float(-uwc.median()) if len(uwc) else 0.0, 0.1)
+    pp_drop = max(float(-pp.median()) if len(pp) else 0.0, 0.0)
+    share = pp_drop / (pp_drop + uwc_drop)
+    return round(float(np.clip(share, 0.0, 0.6)), 3)
+
+
 def load_raw(raw_dir: Path) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame | None]:
     """讀取 data/raw/（noon_reports.csv + events.csv [+ truth.csv]）。"""
     noon = pd.read_csv(raw_dir / "noon_reports.csv")
@@ -78,6 +124,10 @@ def run_pipeline(raw_dir: Path | None = None, artifact_dir: Path | None = None,
     # 肘點法分級（掛在平滑殘差上）
     cuts = fouling_levels(scored["speed_loss_smooth"].dropna().to_numpy())
 
+    # 維護成效表 + 船殼/螺旋槳分割（事件前後 60 天 Speed Loss 中位數比較）
+    effects = maintenance_effects(scored, events)
+    prop_share = estimate_prop_share(effects)
+
     # 每船摘要
     ships = []
     for ship_id, grp in scored.groupby(schema.SHIP_ID):
@@ -123,6 +173,7 @@ def run_pipeline(raw_dir: Path | None = None, artifact_dir: Path | None = None,
     # 輸出
     model.save(artifact_dir / "baseline_model.json")
     refs.to_csv(artifact_dir / "clean_refs.csv")
+    effects.to_csv(artifact_dir / "maintenance_effects.csv", index=False)
     keep_cols = [schema.SHIP_ID, schema.REPORT_DATE, schema.AVG_SPEED, schema.DAILY_FOC,
                  "days_since_clean", "baseline_flag", "expected_foc", "excess_foc",
                  "excess_foc_pct", "speed_loss_pct", "speed_loss_smooth", "excess_foc_smooth",
@@ -134,6 +185,7 @@ def run_pipeline(raw_dir: Path | None = None, artifact_dir: Path | None = None,
         "n_ships": int(fleet.shape[0]),
         "n_rows_scored": int(len(scored)),
         "elbow_cuts_pct": [round(c, 2) for c in cuts],
+        "prop_share": prop_share,
         "validation": metrics,
     }
     (artifact_dir / "summary.json").write_text(json.dumps(summary, indent=2))
