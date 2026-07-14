@@ -10,8 +10,11 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+import xgboost as xgb
 
 from app import config, schema
+from app.api.fuel_market import FuelMarketService
+from app.api.model_packages import ModelPackageStore
 from app.pipeline.baseline import CleanBaselineModel
 from app.pipeline.features import build_features
 from app.pipeline.roi import RoiParams, days_to_threshold, whatif_curve
@@ -51,6 +54,8 @@ class FleetService:
             co2_per_ton=config.CO2_PER_TON_FUEL,
         )
         self.read_alert_ids: set[str] = set()
+        self.fuel_market = FuelMarketService(d / "fuel-market-cache.json")
+        self.model_packages = ModelPackageStore(d / "model-packages")
 
     # ---------- model registry ----------
     def model_registry(self) -> dict:
@@ -62,8 +67,7 @@ class FleetService:
         """
         validation = self.summary.get("validation", {})
         baseline_mape = validation.get("mape_pct")
-        return {
-            "models": [
+        builtins = [
                 {
                     "id": "linear-growth",
                     "name": "線性結垢趨勢 v1",
@@ -89,6 +93,20 @@ class FleetService:
                     "is_primary": False,
                 },
             ]
+        active_id = self.model_packages.active_id()
+        for model in builtins:
+            model["is_primary"] = model["id"] == active_id
+            model["status"] = "active" if model["is_primary"] else "available"
+            model["version"] = "1.0.0"
+            model["model_format"] = "builtin"
+        uploaded = self.model_packages.list()
+        for model in uploaded:
+            model["is_primary"] = model["id"] == active_id
+        return {
+            "models": builtins + uploaded,
+            "active_model_id": active_id,
+            "supported_formats": ["xgboost-json"],
+            "planned_formats": ["onnx"],
         }
 
     def ship_forecast(self, ship_id: str, model_id: str, speed: float | None = None) -> dict:
@@ -112,10 +130,25 @@ class FleetService:
                 mid = current_sl
                 lo = current_sl - 0.35
                 hi = current_sl + 0.35
-            else:
+            elif model_id in {"linear-growth", "physics-scenario"}:
                 growth = float(point["mid"]) - current_sl
                 scenario_factor = speed_factor if model_id == "physics-scenario" else 1.0
                 mid = current_sl + growth * scenario_factor
+                half_band = (float(point["hi"]) - float(point["lo"])) / 2
+                lo, hi = mid - half_band, mid + half_band
+            else:
+                booster, package = self.model_packages.load_booster(model_id)
+                features = package["features"]
+                week = len(forecast) + 1
+                values = {
+                    "week": week,
+                    "current_speed_loss_pct": current_sl,
+                    "growth_pp_per_day": float(row.growth_pp_per_day),
+                    "scenario_speed_kn": scenario_speed,
+                    "reference_speed_kn": reference_speed,
+                }
+                matrix = xgb.DMatrix([[values[name] for name in features]], feature_names=features)
+                mid = float(booster.predict(matrix)[0])
                 half_band = (float(point["hi"]) - float(point["lo"])) / 2
                 lo, hi = mid - half_band, mid + half_band
             forecast.append({
@@ -134,15 +167,83 @@ class FleetService:
             "forecast": forecast,
         }
 
+    def register_model_package(self, manifest: str, artifact: bytes) -> dict:
+        record = self.model_packages.register(manifest, artifact)
+        booster, package = self.model_packages.load_booster(record["id"])
+        features = package["features"]
+        rows = []
+        targets = []
+        current_predictions = []
+        for ship_id, frame in self.scored.groupby(schema.SHIP_ID):
+            frame = frame.sort_values(schema.REPORT_DATE).dropna(subset=["speed_loss_smooth", schema.AVG_SPEED])
+            if len(frame) < 8:
+                continue
+            fleet_row = self.fleet[self.fleet[schema.SHIP_ID] == ship_id]
+            if fleet_row.empty:
+                continue
+            fleet_row = fleet_row.iloc[0]
+            for index in range(len(frame) - 7):
+                current = frame.iloc[index]
+                max_week = min(FORECAST_WEEKS, (len(frame) - index - 1) // 7)
+                for week in range(1, max_week + 1):
+                    target = frame.iloc[index + week * 7]
+                    values = {
+                        "week": float(week),
+                        "current_speed_loss_pct": float(current["speed_loss_smooth"]),
+                        "growth_pp_per_day": float(fleet_row.growth_pp_per_day),
+                        "scenario_speed_kn": float(current[schema.AVG_SPEED]),
+                        "reference_speed_kn": float(fleet_row.v_ref),
+                    }
+                    rows.append([values[name] for name in features])
+                    targets.append(float(target["speed_loss_smooth"]))
+                    current_predictions.append(
+                        values["current_speed_loss_pct"] + values["growth_pp_per_day"] * 7 * week
+                    )
+        if not rows:
+            raise ValueError("歷史資料不足，無法建立共同驗證集")
+        candidate = booster.predict(xgb.DMatrix(rows, feature_names=features))
+        candidate_mae = float(np.mean(np.abs(candidate - np.asarray(targets))))
+        current_mae = float(np.mean(np.abs(np.asarray(current_predictions) - np.asarray(targets))))
+        finite = bool(np.isfinite(candidate).all())
+        in_range = bool(((candidate >= 0) & (candidate <= 100)).all())
+        passed = finite and in_range and candidate_mae <= current_mae * 1.05
+        validation = {
+            "rows": len(rows),
+            "candidate_mae": round(candidate_mae, 4),
+            "current_model_mae": round(current_mae, 4),
+            "max_allowed_mae": round(current_mae * 1.05, 4),
+            "finite": finite,
+            "in_range": in_range,
+            "passed": passed,
+        }
+        return self.model_packages.update_validation(record["id"], validation)
+
+    def activate_model(self, model_id: str) -> dict:
+        return self.model_packages.activate(model_id)
+
+    def restore_builtin_model(self) -> dict:
+        return self.model_packages.restore()
+
+    def _decision_growth(self, row) -> float:
+        """Convert the active trend model's first week into a daily decision slope."""
+        active_id = self.model_packages.active_id()
+        if active_id == "linear-growth":
+            return float(row.growth_pp_per_day)
+        forecast = self.ship_forecast(str(row.ship_id), active_id, float(row.v_ref))["forecast"]
+        if not forecast:
+            return float(row.growth_pp_per_day)
+        return (float(forecast[0]["mid"]) - float(row.current_speed_loss_pct)) / 7
+
     # ---------- maintenance schedule ----------
-    def maintenance_schedule(self) -> dict:
+    def maintenance_schedule(self, past_days: int = 90, future_days: int = 180) -> dict:
         anchor = pd.to_datetime(self.fleet["last_date"]).max().normalize()
         ranked = self.fleet.sort_values("excess_cost_per_day", ascending=False).reset_index(drop=True)
         recommendations = []
         for index, row in ranked.iterrows():
+            decision_growth = self._decision_growth(row)
             curve = whatif_curve(
                 float(row.current_speed_loss_pct),
-                float(row.growth_pp_per_day),
+                decision_growth,
                 float(row.f_ref),
                 self.roi_params,
             )
@@ -179,15 +280,19 @@ class FleetService:
                 "action_cost_usd": round(action_cost),
                 "monthly_saving_usd": round(daily_saving * 30),
                 "daily_fuel_saving_tons": round(daily_saving / self.roi_params.fuel_price_usd, 2),
-                "inspection_recommended": curve["payback_days"] is None or float(row.growth_pp_per_day) <= 0,
+                "inspection_recommended": curve["payback_days"] is None or decision_growth <= 0,
                 "backfill": {
                     "ship_id": backfill_row.ship_id,
                     "ship_name": backfill_row.ship_name,
                 },
                 "read_only": True,
+                "speed_loss_pct": round(float(row.current_speed_loss_pct), 2),
+                "excess_cost_per_day": round(float(row.excess_cost_per_day), 2),
+                "risk_rank": 0 if _status(float(row.current_speed_loss_pct), None if pd.isna(row.days_to_threshold) else int(row.days_to_threshold)) == "action" else 1,
             })
 
-        horizon_end = anchor + pd.Timedelta(days=self.roi_params.horizon_days)
+        timeline_start = anchor - pd.Timedelta(days=past_days)
+        horizon_end = anchor + pd.Timedelta(days=future_days)
         dd = self.events[
             (self.events[schema.EVENT_TYPE].astype(str).str.upper() == "DD")
             & (self.events[schema.EVENT_DATE] >= anchor)
@@ -195,8 +300,12 @@ class FleetService:
         ]
         return {
             "as_of": anchor.strftime("%Y-%m-%d"),
-            "horizon_days": self.roi_params.horizon_days,
-            "primary_model_id": "linear-growth",
+            "horizon_days": future_days,
+            "past_days": past_days,
+            "future_days": future_days,
+            "timeline_start": timeline_start.strftime("%Y-%m-%d"),
+            "timeline_end": horizon_end.strftime("%Y-%m-%d"),
+            "primary_model_id": self.model_packages.active_id(),
             "recommendations": recommendations,
             "dry_docks": [
                 {
@@ -206,57 +315,23 @@ class FleetService:
                 }
                 for _, event in dd.iterrows()
             ],
+            "maintenance_events": [
+                {
+                    "ship_id": event[schema.EVENT_SHIP_ID],
+                    "date": event[schema.EVENT_DATE].strftime("%Y-%m-%d"),
+                    "type": event[schema.EVENT_TYPE],
+                    "notes": event.get(schema.EVENT_NOTES, ""),
+                }
+                for _, event in self.events[
+                    (self.events[schema.EVENT_DATE] >= timeline_start)
+                    & (self.events[schema.EVENT_DATE] <= horizon_end)
+                ].iterrows()
+            ],
         }
 
     # ---------- fuel market ----------
     def fuel_prices(self) -> dict:
-        """Return a source-aware fallback snapshot used when live fetch is unavailable.
-
-        The API contract makes estimates explicit. A later background fetcher can
-        replace these values without changing frontend consumers.
-        """
-        as_of = pd.to_datetime(self.fleet["last_date"]).max().strftime("%Y-%m-%d")
-        vlsfo = float(self.roi_params.fuel_price_usd)
-        definitions = [
-            ("HSHFO", 0.72, "Ship & Bunker IFO380 fallback", False),
-            ("VLSFO", 1.00, "Ship & Bunker fallback", False),
-            ("ULSFO", 1.06, "VLSFO + quality premium", True),
-            ("LSMGO", 1.35, "Ship & Bunker MGO fallback", False),
-            ("BIO_HSFO", 1.18, "HSFO + bio blend premium", True),
-        ]
-        prices = [
-            {
-                "grade": grade,
-                "usd_per_ton": round(vlsfo * ratio, 2),
-                "source": source,
-                "source_url": "https://shipandbunker.com/prices",
-                "as_of": as_of,
-                "estimated": estimated,
-            }
-            for grade, ratio, source, estimated in definitions
-        ]
-        anchor = pd.Timestamp(as_of)
-        history = []
-        offsets = (-0.035, -0.018, -0.026, -0.009, 0.004, -0.002, 0.011,
-                   0.018, 0.009, 0.024, 0.016)
-        for days_ago, offset in zip(range(len(offsets) - 1, -1, -1), offsets):
-            history.append({
-                "date": (anchor - pd.Timedelta(days=days_ago)).strftime("%Y-%m-%d"),
-                "vlsfo_usd_per_ton": round(vlsfo * (1 + offset), 2),
-                "source": "USDA AgTransport fallback",
-            })
-        return {
-            "port": "Singapore proxy",
-            "currency": "USD",
-            "unit": "mt",
-            "prices": prices,
-            "history": history,
-            "effective_price": {
-                "usd_per_ton": round(vlsfo, 2),
-                "method": "VLSFO-equivalent fallback; per-ship fuel mix unavailable in scored artifacts",
-                "estimated": True,
-            },
-        }
+        return self.fuel_market.snapshot()
 
     # ---------- noon-report log ----------
     def ingest_noon_report(self, report: dict) -> dict:
@@ -267,11 +342,12 @@ class FleetService:
 
         avg_speed = float(report["avg_speed"])
         daily_foc = float(report["daily_foc"])
+        report_date = pd.Timestamp(report["report_date"])
         event_dates = self.events[
             (self.events[schema.EVENT_SHIP_ID] == ship_id)
             & (self.events[schema.EVENT_TYPE].isin(schema.RESET_EVENTS))
+            & (self.events[schema.EVENT_DATE] <= report_date)
         ][schema.EVENT_DATE]
-        report_date = pd.Timestamp(report["report_date"])
         days_since_clean = int((report_date - event_dates.max()).days) if len(event_dates) else 0
 
         ref = self.clean_refs.loc[ship_id]
@@ -309,23 +385,79 @@ class FleetService:
             schema.WIND_SCALE: float(report["wind_scale"]),
             schema.HOURS_FULL_SPEED: float(report["full_speed_hours"]),
         })
+        duplicate = (
+            (self.scored[schema.SHIP_ID] == ship_id)
+            & (pd.to_datetime(self.scored[schema.REPORT_DATE]).dt.normalize() == report_date.normalize())
+        )
+        updated = bool(duplicate.any())
+        if updated:
+            self.scored = self.scored.loc[~duplicate].copy()
         self.scored = pd.concat([self.scored, pd.DataFrame([new_row])], ignore_index=True)
         self.scored[schema.REPORT_DATE] = pd.to_datetime(self.scored[schema.REPORT_DATE])
         idx = fleet_index[0]
-        self.fleet.loc[idx, "current_speed_loss_pct"] = speed_loss
-        self.fleet.loc[idx, "days_since_clean"] = max(days_since_clean, 0)
-        self.fleet.loc[idx, "excess_cost_per_day"] = max(excess_foc, 0) * self.roi_params.fuel_price_usd
-        self.fleet.loc[idx, "last_date"] = report_date.strftime("%Y-%m-%d")
-        growth = float(self.fleet.loc[idx, "growth_pp_per_day"])
-        self.fleet.loc[idx, "days_to_threshold"] = days_to_threshold(
-            speed_loss, growth, config.CLEANING_THRESHOLD_PCT,
-        )
+        previous_last = pd.Timestamp(self.fleet.loc[idx, "last_date"])
+        if report_date >= previous_last:
+            self.fleet.loc[idx, "current_speed_loss_pct"] = speed_loss
+            self.fleet.loc[idx, "days_since_clean"] = max(days_since_clean, 0)
+            self.fleet.loc[idx, "excess_cost_per_day"] = max(excess_foc, 0) * self.roi_params.fuel_price_usd
+            self.fleet.loc[idx, "last_date"] = report_date.strftime("%Y-%m-%d")
+            growth = float(self.fleet.loc[idx, "growth_pp_per_day"])
+            self.fleet.loc[idx, "days_to_threshold"] = days_to_threshold(
+                speed_loss, growth, config.CLEANING_THRESHOLD_PCT,
+            )
         return {
             "accepted": True,
+            "updated": updated,
             "ship_id": ship_id,
             "report_date": report_date.strftime("%Y-%m-%d"),
             "speed_loss_pct": round(speed_loss, 2),
             "excess_foc_tons": round(excess_foc, 2),
+        }
+
+    def ingest_noon_report_csv(self, frame: pd.DataFrame) -> dict:
+        required = ["ship_id", "report_date", "avg_speed", "daily_foc", "wind_scale", "full_speed_hours"]
+        missing = [column for column in required if column not in frame.columns]
+        if missing:
+            raise ValueError(f"CSV 缺少欄位：{', '.join(missing)}")
+        results = []
+        errors = []
+        updated = 0
+        for index, row in frame.iterrows():
+            line = int(index) + 2
+            try:
+                report = {column: row[column] for column in required}
+                if not str(report["ship_id"]).strip():
+                    raise ValueError("ship_id 不可空白")
+                numeric = {
+                    column: float(report[column])
+                    for column in ["avg_speed", "daily_foc", "wind_scale", "full_speed_hours"]
+                }
+                if not all(np.isfinite(value) for value in numeric.values()):
+                    raise ValueError("數值欄位不得為空白、NaN 或無限大")
+                if not 1 <= numeric["avg_speed"] <= 35:
+                    raise ValueError("均速必須介於 1–35 kn")
+                if numeric["daily_foc"] <= 0:
+                    raise ValueError("DailyFOC 必須大於 0")
+                if not 0 <= numeric["wind_scale"] <= 12:
+                    raise ValueError("風級必須介於 0–12 Bft")
+                if not 0 < numeric["full_speed_hours"] <= 24:
+                    raise ValueError("全速時數必須介於 0–24 小時")
+                pd.Timestamp(report["report_date"])
+                result = self.ingest_noon_report(report)
+                updated += int(result["updated"])
+                results.append({"row": line, **result})
+            except (KeyError, ValueError, TypeError) as exc:
+                message = f"未知船舶 {report.get('ship_id')}" if isinstance(exc, KeyError) else str(exc)
+                errors.append({"row": line, "message": message})
+        return {
+            "summary": {
+                "rows": len(frame),
+                "accepted": len(results),
+                "rejected": len(errors),
+                "updated": updated,
+            },
+            "results": results,
+            "errors": errors,
         }
 
     def ship_log(self, ship_id: str, days: int = 30) -> dict:
@@ -602,11 +734,11 @@ class FleetService:
         )
         curve = whatif_curve(
             current_sl_pct=float(target.current_speed_loss_pct),
-            growth_pp_day=float(target.growth_pp_per_day),
+            growth_pp_day=self._decision_growth(target),
             f_ref=float(target.f_ref), params=params)
         per_ship, annual_saving = [], 0.0
         for r in f.itertuples():
-            c = whatif_curve(float(r.current_speed_loss_pct), float(r.growth_pp_per_day),
+            c = whatif_curve(float(r.current_speed_loss_pct), self._decision_growth(r),
                              float(r.f_ref), params)
             if c["best_day"] is not None:
                 annual_saving += (c["no_clean_avg"] - c["best_avg"]) * 365
@@ -626,5 +758,6 @@ class FleetService:
                 "fuel_price_usd": params.fuel_price_usd,
                 "cleaning_cost_usd": params.cleaning_cost_usd,
                 "prop_share": self.prop_share,
+                "primary_model_id": self.model_packages.active_id(),
             },
         }

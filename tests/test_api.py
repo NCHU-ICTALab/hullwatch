@@ -1,6 +1,10 @@
 """FastAPI 端點整合測試（stub LLM、本地檢索、小型合成資料）。"""
 
+import json
+
+import numpy as np
 import pytest
+import xgboost as xgb
 from fastapi.testclient import TestClient
 
 from app import config
@@ -16,12 +20,15 @@ def client(tmp_path_factory):
                                            end="2023-06-30", seed=5))
     run_pipeline(raw, art)
     old = config.ARTIFACT_DIR
+    old_fuel_live = config.FUEL_LIVE_ENABLED
     config.ARTIFACT_DIR = art
+    config.FUEL_LIVE_ENABLED = False
     from app.api.main import app
 
     with TestClient(app) as c:
         yield c
     config.ARTIFACT_DIR = old
+    config.FUEL_LIVE_ENABLED = old_fuel_live
 
 
 def test_health(client):
@@ -128,17 +135,31 @@ def test_schedule_returns_read_only_recommendations_for_the_fleet(client):
     assert "backfill" in recommendation
 
 
+def test_schedule_exposes_ninety_day_history_and_sort_fields(client):
+    body = client.get("/api/schedule", params={"past_days": 90, "future_days": 180}).json()
+
+    assert body["past_days"] == 90
+    assert body["future_days"] == 180
+    assert body["timeline_start"] < body["as_of"] < body["timeline_end"]
+    assert all(
+        {"risk_rank", "speed_loss_pct", "excess_cost_per_day"} <= item.keys()
+        for item in body["recommendations"]
+    )
+    assert "maintenance_events" in body
+
+
 def test_fuel_prices_expose_five_grades_sources_and_history(client):
     response = client.get("/api/fuel-prices")
 
     assert response.status_code == 200
     body = response.json()
-    assert {price["grade"] for price in body["prices"]} == {
-        "HSHFO", "VLSFO", "ULSFO", "LSMGO", "BIO_HSFO"
-    }
-    assert all(price["source"] and price["as_of"] for price in body["prices"])
-    assert any(price["estimated"] for price in body["prices"])
-    assert len(body["history"]) >= 7
+    assert isinstance(body["prices"], list)
+    assert isinstance(body["history"], list)
+    assert body["effective_price"]["estimated"] is True
+    assert "manual scenario" in body["effective_price"]["method"]
+    assert body["market_status"] in {"live", "cached", "stale", "unavailable"}
+    assert body["refresh_interval_hours"] == 6
+    assert body["stale_after_hours"] == 24
 
 
 def test_noon_report_upload_updates_ship_log_and_current_kpi(client):
@@ -174,6 +195,111 @@ def test_noon_report_rejects_unknown_ship(client):
     })
 
     assert response.status_code == 404
+
+
+def test_noon_report_csv_template_has_canonical_columns(client):
+    response = client.get("/api/noon-report/template")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/csv")
+    assert response.text.splitlines()[0] == (
+        "ship_id,report_date,avg_speed,daily_foc,wind_scale,full_speed_hours"
+    )
+
+
+def test_noon_report_csv_import_partially_accepts_and_overwrites(client):
+    ship_id = client.get("/api/fleet").json()["ships"][0]["ship_id"]
+    csv_body = (
+        "ship_id,report_date,avg_speed,daily_foc,wind_scale,full_speed_hours\n"
+        f"{ship_id},2026-07-16,15.8,41.0,3,24\n"
+        "NOPE,2026-07-16,15.8,41.0,3,24\n"
+    )
+    first = client.post(
+        "/api/noon-report/file",
+        files={"file": ("noon.csv", csv_body.encode(), "text/csv")},
+    )
+
+    assert first.status_code == 200
+    assert first.json()["summary"] == {"rows": 2, "accepted": 1, "rejected": 1, "updated": 0}
+    assert first.json()["errors"][0]["row"] == 3
+
+    replacement = csv_body.splitlines()[0] + f"\n{ship_id},2026-07-16,15.8,43.0,3,24\n"
+    second = client.post(
+        "/api/noon-report/file",
+        files={"file": ("noon.csv", replacement.encode(), "text/csv")},
+    )
+    assert second.json()["summary"]["updated"] == 1
+    detail = client.get(f"/api/ship/{ship_id}").json()
+    assert detail["current"]["daily_foc"] == 43.0
+
+
+def test_noon_report_csv_rejects_out_of_range_rows_without_replacing_current(client):
+    ship_id = client.get("/api/fleet").json()["ships"][0]["ship_id"]
+    before = client.get(f"/api/ship/{ship_id}").json()["current"]["daily_foc"]
+    csv_body = (
+        "ship_id,report_date,avg_speed,daily_foc,wind_scale,full_speed_hours\n"
+        f"{ship_id},2020-01-01,15.8,99.0,-1,25\n"
+    )
+    response = client.post(
+        "/api/noon-report/file",
+        files={"file": ("noon.csv", csv_body.encode(), "text/csv")},
+    )
+
+    assert response.json()["summary"]["rejected"] == 1
+    assert client.get(f"/api/ship/{ship_id}").json()["current"]["daily_foc"] == before
+
+
+def test_model_manifest_template_and_weights_only_upload_rejection(client):
+    template = client.get("/api/models/template")
+
+    assert template.status_code == 200
+    body = template.json()
+    assert body["model_format"] == "xgboost-json"
+    assert body["target"] == "speed_loss_pct"
+    assert body["features"]
+    response = client.post(
+        "/api/models/upload",
+        files={"artifact": ("model.json", b"{}", "application/json")},
+        data={"manifest": "{}"},
+    )
+    assert response.status_code == 422
+    non_object = client.post(
+        "/api/models/upload",
+        files={"artifact": ("model.json", b"{}", "application/json")},
+        data={"manifest": "[]"},
+    )
+    assert non_object.status_code == 422
+
+
+def test_valid_xgboost_package_is_registered_as_validated_or_rejected_candidate(client, tmp_path):
+    template = client.get("/api/models/template").json()
+    features = template["features"]
+    rng = np.random.default_rng(4)
+    train_x = rng.normal(size=(80, len(features)))
+    train_y = np.clip(4 + train_x[:, 0] * 0.1, 0, 100)
+    booster = xgb.train({"max_depth": 2, "eta": 0.2}, xgb.DMatrix(train_x, label=train_y, feature_names=features), num_boost_round=4)
+    artifact_path = tmp_path / "model.json"
+    booster.save_model(artifact_path)
+
+    response = client.post(
+        "/api/models/upload",
+        files={"artifact": ("model.json", artifact_path.read_bytes(), "application/json")},
+        data={"manifest": json.dumps(template)},
+    )
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["status"] in {"validated", "rejected"}
+    assert body["validation"]["rows"] > 0
+    registry = client.get("/api/models").json()
+    assert any(model["id"] == template["id"] for model in registry["models"])
+    duplicate = client.post(
+        "/api/models/upload",
+        files={"artifact": ("model.json", artifact_path.read_bytes(), "application/json")},
+        data={"manifest": json.dumps(template)},
+    )
+    assert duplicate.status_code == 422
+    assert "不可變" in duplicate.json()["detail"]
 
 
 def test_alert_center_supports_read_state(client):

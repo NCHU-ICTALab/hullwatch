@@ -6,6 +6,7 @@ import type {
   FuelPriceResponse,
   LogEntry,
   ModelInfo,
+  NoonReportImportResponse,
   RoiResponse,
   ScheduleResponse,
   ShipDetail,
@@ -22,7 +23,18 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 export const api = {
   fleet: () => request<FleetResponse>('/api/fleet'),
-  models: () => request<{ models: ModelInfo[] }>('/api/models'),
+  models: () => request<{ models: ModelInfo[]; active_model_id: string }>('/api/models'),
+  modelTemplate: () => request<Record<string, unknown>>('/api/models/template'),
+  uploadModel: (manifest: string, artifact: File) => {
+    const body = new FormData()
+    body.set('manifest', manifest)
+    body.set('artifact', artifact)
+    return request<ModelInfo>('/api/models/upload', { method: 'POST', body })
+  },
+  activateModel: (modelId: string) => request<ModelInfo>(
+    `/api/models/${encodeURIComponent(modelId)}/activate`, { method: 'POST' },
+  ),
+  restoreModel: () => request<{ active_model_id: string }>('/api/models/restore', { method: 'POST' }),
   ship: (shipId: string) => request<ShipDetail>(`/api/ship/${encodeURIComponent(shipId)}`),
   forecast: (shipId: string, modelId: string, speed: number) =>
     request<ForecastResponse>(
@@ -31,7 +43,7 @@ export const api = {
   roi: (shipId: string, fuelPrice?: number) => request<RoiResponse>(
     `/api/roi?ship_id=${encodeURIComponent(shipId)}${fuelPrice ? `&fuel_price=${fuelPrice}` : ''}`,
   ),
-  schedule: () => request<ScheduleResponse>('/api/schedule'),
+  schedule: () => request<ScheduleResponse>('/api/schedule?past_days=90&future_days=180'),
   fuelPrices: () => request<FuelPriceResponse>('/api/fuel-prices'),
   alerts: () => request<AlertsResponse>('/api/alerts'),
   markAlertRead: (alertId: string) =>
@@ -50,6 +62,11 @@ export const api = {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(report),
   }),
+  importNoonReport: (file: File) => {
+    const body = new FormData()
+    body.set('file', file)
+    return request<NoonReportImportResponse>('/api/noon-report/file', { method: 'POST', body })
+  },
   advisor: (question: string) => request<AdvisorResponse>('/api/advisor', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },

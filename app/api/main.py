@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import io
 from contextlib import asynccontextmanager
 from datetime import date
 
+import pandas as pd
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -15,6 +17,7 @@ from app.llm import inspect as inspect_mod
 from app.llm.advisor import Advisor
 from app.llm.provider import get_chat_model
 from app.llm.retrieval import get_retriever
+from app.api.model_packages import manifest_template
 
 
 class AskBody(BaseModel):
@@ -75,6 +78,38 @@ def models():
     return _svc(app.state).model_registry()
 
 
+@app.get("/api/models/template")
+def model_template():
+    return manifest_template()
+
+
+@app.post("/api/models/upload", status_code=201)
+async def upload_model(artifact: UploadFile = File(...), manifest: str = Form(...)):
+    max_bytes = 20 * 1024 * 1024
+    content = await artifact.read(max_bytes + 1)
+    if len(content) > max_bytes:
+        raise HTTPException(413, "模型檔案不得超過 20MB")
+    try:
+        return _svc(app.state).register_model_package(manifest, content)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc))
+
+
+@app.post("/api/models/{model_id}/activate")
+def activate_model(model_id: str):
+    try:
+        return _svc(app.state).activate_model(model_id)
+    except KeyError:
+        raise HTTPException(404, f"未知模型 {model_id}")
+    except ValueError as exc:
+        raise HTTPException(409, str(exc))
+
+
+@app.post("/api/models/restore")
+def restore_model():
+    return _svc(app.state).restore_builtin_model()
+
+
 @app.get("/api/ship/{ship_id}")
 def ship(ship_id: str):
     try:
@@ -109,6 +144,34 @@ def noon_report(body: NoonReportBody):
         raise HTTPException(404, f"未知船舶 {body.ship_id}")
 
 
+NOON_REPORT_COLUMNS = "ship_id,report_date,avg_speed,daily_foc,wind_scale,full_speed_hours\n"
+
+
+@app.get("/api/noon-report/template")
+def noon_report_template():
+    example = "HW-001,2026-07-15,15.8,41.2,3,24\n"
+    return Response(
+        content=NOON_REPORT_COLUMNS + example,
+        media_type="text/csv",
+        headers={"Content-Disposition": 'attachment; filename="hullwatch-noon-report-template.csv"'},
+    )
+
+
+@app.post("/api/noon-report/file")
+async def noon_report_file(file: UploadFile = File(...)):
+    if not (file.filename or "").lower().endswith(".csv"):
+        raise HTTPException(415, "第一版只接受 CSV 檔案")
+    max_bytes = 5 * 1024 * 1024
+    content = await file.read(max_bytes + 1)
+    if len(content) > max_bytes:
+        raise HTTPException(413, "CSV 檔案請小於 5MB")
+    try:
+        frame = pd.read_csv(io.BytesIO(content))
+        return _svc(app.state).ingest_noon_report_csv(frame)
+    except (UnicodeDecodeError, pd.errors.ParserError, ValueError) as exc:
+        raise HTTPException(422, str(exc))
+
+
 @app.get("/api/roi")
 def roi(
     ship_id: str | None = None,
@@ -126,8 +189,11 @@ def roi(
 
 
 @app.get("/api/schedule")
-def schedule():
-    return _svc(app.state).maintenance_schedule()
+def schedule(past_days: int = 90, future_days: int = 180):
+    return _svc(app.state).maintenance_schedule(
+        max(0, min(past_days, 365)),
+        max(30, min(future_days, 365)),
+    )
 
 
 @app.get("/api/fuel-prices")

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type FormEvent } from 'react'
+import { useEffect, useMemo, useRef, useState, type FormEvent, type PointerEvent as ReactPointerEvent } from 'react'
 import {
   AlertTriangle,
   Bell,
@@ -30,6 +30,7 @@ import type {
   FuelPriceResponse,
   LogEntry,
   ModelInfo,
+  NoonReportImportResponse,
   RoiResponse,
   ScheduleItem,
   ScheduleResponse,
@@ -71,10 +72,12 @@ function App() {
   const [dark, setDark] = useState(() => localStorage.getItem('hw-theme') === 'dark')
   const [tickerPaused, setTickerPaused] = useState(false)
   const [alertOpen, setAlertOpen] = useState(false)
+  const [decisionFocusKey, setDecisionFocusKey] = useState(0)
   const [tool, setTool] = useState<Tool>(null)
   const [refreshVersion, setRefreshVersion] = useState(0)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const seenCriticalAlerts = useRef(new Set<string>())
 
   useEffect(() => {
     document.documentElement.classList.toggle('dark', dark)
@@ -123,6 +126,23 @@ function App() {
     if (detail?.current.avg_speed) setScenarioSpeed(detail.current.avg_speed)
   }, [detail?.ship_id, detail?.current.avg_speed])
 
+  useEffect(() => {
+    const criticalAlerts = alerts?.alerts.filter((alert) => alert.severity === 'critical') ?? []
+    const hasNewCritical = criticalAlerts.some((alert) => !alert.read && !seenCriticalAlerts.current.has(alert.id))
+    seenCriticalAlerts.current = new Set(criticalAlerts.map((alert) => alert.id))
+    if (hasNewCritical) setAlertOpen(true)
+  }, [alerts])
+
+  useEffect(() => {
+    if (view !== 'decide' || decisionFocusKey === 0) return
+    const timer = window.setTimeout(() => {
+      const target = document.getElementById('selected-decision')
+      target?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      target?.focus({ preventScroll: true })
+    }, 80)
+    return () => window.clearTimeout(timer)
+  }, [view, decisionFocusKey])
+
   const filteredShips = useMemo(() => fleet?.ships.filter((ship) => (
     (statusFilter === 'all' || ship.status === statusFilter) && ship.speed_loss_pct >= slMinimum
   )) ?? [], [fleet, statusFilter, slMinimum])
@@ -148,6 +168,14 @@ function App() {
     setAlerts(alertData)
   }
 
+  const refreshModels = async () => {
+    const [result, scheduleData] = await Promise.all([api.models(), api.schedule()])
+    setModels(result.models)
+    setSchedule(scheduleData)
+    setPrimaryModel(result.models.find((model) => model.is_primary)?.id ?? 'linear-growth')
+    setVisibleModels(result.models.filter((model) => model.status !== 'rejected').slice(0, 2).map((model) => model.id))
+  }
+
   if (loading) return <LoadingScreen />
 
   return (
@@ -169,6 +197,9 @@ function App() {
         {view === 'fleet' && fleet && (
           <FleetView
             fleet={fleet}
+            fuel={fuel}
+            tickerPaused={tickerPaused}
+            setTickerPaused={setTickerPaused}
             ships={filteredShips}
             statusFilter={statusFilter}
             setStatusFilter={setStatusFilter}
@@ -190,8 +221,7 @@ function App() {
             setScenarioSpeed={setScenarioSpeed}
             log={log}
             roi={roi}
-            onDecide={() => setView('decide')}
-            onReportUploaded={refreshAfterReport}
+            onDecide={() => { setView('decide'); setDecisionFocusKey((key) => key + 1) }}
             recommendation={schedule?.recommendations.find((item) => item.ship_id === selectedShipId)}
             dark={dark}
           />
@@ -207,13 +237,22 @@ function App() {
             dark={dark}
             fuelScenario={fuelScenario}
             setFuelScenario={setFuelScenario}
+            focusKey={decisionFocusKey}
           />
         )}
       </main>
 
-      {fuel && <FuelTicker fuel={fuel} paused={tickerPaused} setPaused={setTickerPaused} />}
       <AlertDrawer alerts={alerts} open={alertOpen} onClose={() => setAlertOpen(false)} onSelect={markAlert} />
-      <ToolDialog tool={tool} onClose={() => setTool(null)} shipId={selectedShipId} alerts={alerts} />
+      <ToolDialog
+        tool={tool}
+        onClose={() => setTool(null)}
+        shipId={selectedShipId}
+        alerts={alerts}
+        fuel={fuel}
+        models={models}
+        onModelsChanged={refreshModels}
+        onReportsImported={refreshAfterReport}
+      />
     </div>
   )
 }
@@ -261,8 +300,11 @@ function Header({ view, setView, dark, setDark, alerts, onAlert, onTool }: {
   )
 }
 
-function FleetView({ fleet, ships, statusFilter, setStatusFilter, slMinimum, setSlMinimum, onSelect }: {
+function FleetView({ fleet, fuel, tickerPaused, setTickerPaused, ships, statusFilter, setStatusFilter, slMinimum, setSlMinimum, onSelect }: {
   fleet: FleetResponse
+  fuel: FuelPriceResponse | null
+  tickerPaused: boolean
+  setTickerPaused: (paused: boolean) => void
   ships: FleetShip[]
   statusFilter: 'all' | Status
   setStatusFilter: (value: 'all' | Status) => void
@@ -273,6 +315,7 @@ function FleetView({ fleet, ships, statusFilter, setStatusFilter, slMinimum, set
   return (
     <section className="page fleet-page" aria-labelledby="fleet-title">
       <PageHeading eyebrow="01 / FLEET HEALTH" title="船隊健康總覽" subtitle={`${fleet.stats.n_ships} 艘船 · 依 Speed Loss 風險與清洗急迫度排序`} />
+      {fuel && <FuelTicker fuel={fuel} paused={tickerPaused} setPaused={setTickerPaused} />}
       <div className="fleet-stats instrument-grid">
         <Metric label="平均 Speed Loss" value={`${number.format(fleet.stats.avg_speed_loss_pct)}%`} tone="teal" />
         <Metric label="立即處置" value={`${fleet.stats.ships_action}`} unit="艘" tone="red" />
@@ -304,7 +347,7 @@ function ShipCard({ ship, onSelect }: { ship: FleetShip; onSelect: (shipId: stri
   )
 }
 
-function DiagnoseView({ detail, models, forecasts, primaryModel, setPrimaryModel, visibleModels, setVisibleModels, scenarioSpeed, setScenarioSpeed, log, roi, onDecide, onReportUploaded, recommendation, dark }: {
+function DiagnoseView({ detail, models, forecasts, primaryModel, setPrimaryModel, visibleModels, setVisibleModels, scenarioSpeed, setScenarioSpeed, log, roi, onDecide, recommendation, dark }: {
   detail: ShipDetail | null
   models: ModelInfo[]
   forecasts: Record<string, ForecastResponse>
@@ -317,7 +360,6 @@ function DiagnoseView({ detail, models, forecasts, primaryModel, setPrimaryModel
   log: LogEntry[]
   roi: RoiResponse | null
   onDecide: () => void
-  onReportUploaded: () => Promise<void>
   recommendation?: ScheduleItem
   dark: boolean
 }) {
@@ -347,10 +389,10 @@ function DiagnoseView({ detail, models, forecasts, primaryModel, setPrimaryModel
     })
     return {
       animation: !window.matchMedia('(prefers-reduced-motion: reduce)').matches,
-      textStyle: { color: chartText }, tooltip: { trigger: 'axis' }, legend: { data: legendNames, bottom: 0, textStyle: { color: chartText } },
+      textStyle: { color: chartText, fontSize: 14 }, tooltip: { trigger: 'axis' }, legend: { data: legendNames, bottom: 0, textStyle: { color: chartText, fontSize: 13 } },
       grid: { left: 48, right: 24, top: 32, bottom: 66 },
-      xAxis: { type: 'time', axisLabel: { color: chartText }, axisLine: { lineStyle: { color: chartGrid } } },
-      yAxis: { type: 'value', name: 'Speed Loss %', nameTextStyle: { color: chartText }, axisLabel: { color: chartText }, splitLine: { lineStyle: { color: chartGrid } } },
+      xAxis: { type: 'time', axisLabel: { color: chartText, fontSize: 13 }, axisLine: { lineStyle: { color: chartGrid } } },
+      yAxis: { type: 'value', name: 'Speed Loss %', nameTextStyle: { color: chartText, fontSize: 13 }, axisLabel: { color: chartText, fontSize: 13 }, splitLine: { lineStyle: { color: chartGrid } } },
       series,
     }
   }, [dark, detail, forecasts, primaryModel, visibleModels])
@@ -395,7 +437,6 @@ function DiagnoseView({ detail, models, forecasts, primaryModel, setPrimaryModel
         </section>
         <section className="panel log-panel wide-panel">
           <div className="panel-heading"><div><span>30-DAY LOG</span><h2>正午日報與水下事件</h2></div><Upload size={18} /></div>
-          <NoonReportForm shipId={detail.ship_id} onUploaded={onReportUploaded} />
           <LogTable entries={log} />
         </section>
       </div>
@@ -404,7 +445,7 @@ function DiagnoseView({ detail, models, forecasts, primaryModel, setPrimaryModel
   )
 }
 
-function DecideView({ schedule, fuel, roi, selectedShipId, primaryModel, onSelect, dark, fuelScenario, setFuelScenario }: {
+function DecideView({ schedule, fuel, roi, selectedShipId, primaryModel, onSelect, dark, fuelScenario, setFuelScenario, focusKey }: {
   schedule: ScheduleResponse
   fuel: FuelPriceResponse
   roi: RoiResponse
@@ -414,40 +455,71 @@ function DecideView({ schedule, fuel, roi, selectedShipId, primaryModel, onSelec
   dark: boolean
   fuelScenario: number
   setFuelScenario: (value: number) => void
+  focusKey: number
 }) {
   const [selectedRecommendation, setSelectedRecommendation] = useState<ScheduleItem | null>(
     schedule.recommendations.find((item) => item.ship_id === selectedShipId) ?? schedule.recommendations[0] ?? null,
   )
   const [cleaningDay, setCleaningDay] = useState(roi.target.best_day ?? 0)
+  const [sortBy, setSortBy] = useState<'id' | 'name' | 'risk' | 'cost' | 'speed-loss'>('id')
+  const [zoom, setZoom] = useState(1.5)
+  const ganttViewport = useRef<HTMLDivElement>(null)
   useEffect(() => setCleaningDay(roi.target.best_day ?? 0), [roi.target.best_day])
+  useEffect(() => {
+    setSelectedRecommendation(
+      schedule.recommendations.find((item) => item.ship_id === selectedShipId) ?? schedule.recommendations[0] ?? null,
+    )
+  }, [schedule.recommendations, selectedShipId])
+  const sortedRecommendations = useMemo(() => [...schedule.recommendations].sort((a, b) => {
+    if (sortBy === 'name') return a.ship_name.localeCompare(b.ship_name, 'zh-Hant')
+    if (sortBy === 'risk') return a.risk_rank - b.risk_rank || b.excess_cost_per_day - a.excess_cost_per_day
+    if (sortBy === 'cost') return b.excess_cost_per_day - a.excess_cost_per_day
+    if (sortBy === 'speed-loss') return b.speed_loss_pct - a.speed_loss_pct
+    return a.ship_id.localeCompare(b.ship_id, undefined, { numeric: true })
+  }), [schedule.recommendations, sortBy])
+  const timelineDays = schedule.past_days + schedule.future_days
+  const todayRatio = schedule.past_days / timelineDays
+  const scrollGantt = (direction: -1 | 1) => ganttViewport.current?.scrollBy({ left: direction * 360, behavior: 'smooth' })
+  const scrollToday = () => {
+    const viewport = ganttViewport.current
+    if (!viewport) return
+    viewport.scrollTo({ left: Math.max(0, viewport.scrollWidth * todayRatio - viewport.clientWidth / 2), behavior: 'smooth' })
+  }
   const chartText = dark ? '#A7B8C0' : '#4A5A63'
   const chartGrid = dark ? '#2A3B43' : '#D8DFE4'
   const roiOption = useMemo<EChartsOption>(() => ({
-    textStyle: { color: chartText },
+    textStyle: { color: chartText, fontSize: 14 },
     tooltip: { trigger: 'axis', valueFormatter: (value) => money.format(Number(value)) },
     grid: { left: 66, right: 26, top: 24, bottom: 44 },
-    xAxis: { type: 'category', name: '延後天數', nameTextStyle: { color: chartText }, axisLabel: { color: chartText }, data: roi.target.days.filter((_, index) => index % 5 === 0) },
-    yAxis: { type: 'value', name: '平均每日成本', nameTextStyle: { color: chartText }, axisLabel: { color: chartText, formatter: (value: number) => `$${Math.round(value / 1000)}k` }, splitLine: { lineStyle: { color: chartGrid } } },
+    xAxis: { type: 'category', name: '延後天數', nameTextStyle: { color: chartText, fontSize: 13 }, axisLabel: { color: chartText, fontSize: 13 }, data: roi.target.days.filter((_, index) => index % 5 === 0) },
+    yAxis: { type: 'value', name: '平均每日成本', nameTextStyle: { color: chartText, fontSize: 13 }, axisLabel: { color: chartText, fontSize: 13, formatter: (value: number) => `$${Math.round(value / 1000)}k` }, splitLine: { lineStyle: { color: chartGrid } } },
     series: [{ type: 'line', data: roi.target.avg_cost.filter((_, index) => index % 5 === 0), smooth: true, showSymbol: false, lineStyle: { width: 3, color: '#0E5E6F' }, markLine: { data: [{ yAxis: roi.target.no_clean_avg, name: '永不清洗' }], lineStyle: { color: '#A33B2E', type: 'dashed' } }, markPoint: roi.target.best_day === null ? undefined : { data: [{ coord: [Math.floor(roi.target.best_day / 5), roi.target.best_avg], name: '最佳日' }], itemStyle: { color: '#C77400' } } }],
   }), [chartGrid, chartText, roi])
   const fuelOption = useMemo<EChartsOption>(() => ({
-    textStyle: { color: chartText },
+    textStyle: { color: chartText, fontSize: 14 },
     tooltip: { trigger: 'axis' }, grid: { left: 56, right: 20, top: 20, bottom: 38 },
-    xAxis: { type: 'category', axisLabel: { color: chartText }, data: fuel.history.map((point) => point.date.slice(5)) },
-    yAxis: { type: 'value', min: 'dataMin', axisLabel: { color: chartText, formatter: '${value}' }, splitLine: { lineStyle: { color: chartGrid } } },
+    xAxis: { type: 'category', axisLabel: { color: chartText, fontSize: 13 }, data: fuel.history.map((point) => point.date.slice(5)) },
+    yAxis: { type: 'value', min: 'dataMin', axisLabel: { color: chartText, fontSize: 13, formatter: '${value}' }, splitLine: { lineStyle: { color: chartGrid } } },
     series: [{ type: 'line', data: fuel.history.map((point) => point.vlsfo_usd_per_ton), showSymbol: false, lineStyle: { width: 3, color: '#0E5E6F' }, areaStyle: { color: 'rgba(14,94,111,.12)' } }],
   }), [chartGrid, chartText, fuel])
   return (
     <section className="page decide-page" aria-labelledby="decide-title">
       <PageHeading eyebrow="03 / MAINTENANCE DECISION" title="維護排程與經濟決策" subtitle={`未來 ${schedule.horizon_days} 天 · 唯讀系統建議 · 主模型 ${primaryModel}`} />
       <section className="panel schedule-panel">
-        <div className="panel-heading"><div><span>RECOMMENDED WINDOWS</span><h2>全船隊清潔建議甘特圖</h2></div><span className="model-basis">基準日 {schedule.as_of}</span></div>
-        <div className="gantt" role="img" aria-label="全船隊未來 180 天清潔建議甘特圖">
-          <div className="gantt-axis"><span>今日／基準日</span><span>+45 天</span><span>+90 天</span><span>+135 天</span><span>+180 天</span></div>
-          {schedule.recommendations.map((item) => <GanttRow key={item.ship_id} item={item} asOf={schedule.as_of} horizon={schedule.horizon_days} dryDock={schedule.dry_docks.find((event) => event.ship_id === item.ship_id)?.date} selected={selectedRecommendation?.ship_id === item.ship_id} onOpen={setSelectedRecommendation} />)}
+        <div className="panel-heading"><div><span>RECOMMENDED WINDOWS</span><h2>全船隊清潔建議甘特圖</h2></div><span className="model-basis">過去 {schedule.past_days} 天 · 未來 {schedule.future_days} 天</span></div>
+        <div className="gantt-controls">
+          <label>排列方式<select value={sortBy} onChange={(event) => setSortBy(event.target.value as typeof sortBy)}><option value="id">船舶 ID</option><option value="name">船名</option><option value="risk">警報風險</option><option value="cost">每日超額成本</option><option value="speed-loss">Speed Loss</option></select></label>
+          <label>時間縮放<input type="range" min="1" max="3" step="0.25" value={zoom} onChange={(event) => setZoom(Number(event.target.value))} /><span>{Math.round(zoom * 100)}%</span></label>
+          <div><button onClick={() => scrollGantt(-1)}>← 前段</button><button onClick={scrollToday}>回到今天</button><button onClick={() => scrollGantt(1)}>後段 →</button></div>
         </div>
-        {selectedRecommendation && <article className="schedule-detail" aria-live="polite"><div><span>建議詳情 · 唯讀</span><strong>{selectedRecommendation.ship_name} / {selectedRecommendation.action}</strong></div><p>{selectedRecommendation.window_start}–{selectedRecommendation.window_end}，作業成本 {money.format(selectedRecommendation.action_cost_usd)}，預期回復 <b>{selectedRecommendation.speed_loss_recovery_pp.toFixed(1)}pp SL</b>、每日省 {selectedRecommendation.daily_fuel_saving_tons.toFixed(2)} 噸、每月省 {money.format(selectedRecommendation.monthly_saving_usd)}。若延後，優先遞補：{selectedRecommendation.backfill.ship_name}。{selectedRecommendation.inspection_recommended && <b> 不確定性較高，建議先安排 UWI 檢查。</b>}</p><button onClick={() => onSelect(selectedRecommendation.ship_id, 'diagnose')}>查看單船診斷 <ChevronRight size={15} /></button></article>}
-        <details className="data-fallback"><summary>查看排程資料表</summary><ScheduleTable items={schedule.recommendations} onSelect={onSelect} /></details>
+        <div className="gantt-viewport" ref={ganttViewport}>
+          <div className="gantt" style={{ width: `${zoom * 100}%` }} role="region" aria-label="全船隊過去 90 天至未來 180 天清潔建議甘特圖" tabIndex={0}>
+            <div className="gantt-axis"><span>{schedule.timeline_start}</span><span>−23 天</span><span>+45 天</span><span>+113 天</span><span>{schedule.timeline_end}</span></div>
+            {sortedRecommendations.map((item) => <GanttRow key={item.ship_id} item={item} timelineStart={schedule.timeline_start} totalDays={timelineDays} todayRatio={todayRatio} dryDock={schedule.dry_docks.find((event) => event.ship_id === item.ship_id)?.date} events={schedule.maintenance_events.filter((event) => event.ship_id === item.ship_id && event.type !== 'DD')} selected={selectedRecommendation?.ship_id === item.ship_id} onOpen={setSelectedRecommendation} />)}
+          </div>
+        </div>
+        {selectedRecommendation && <article id="selected-decision" tabIndex={-1} className={`schedule-detail ${focusKey ? 'focus-highlight' : ''}`} aria-live="polite"><div><span>建議詳情 · 唯讀</span><strong>{selectedRecommendation.ship_name} / {selectedRecommendation.action}</strong></div><p>{selectedRecommendation.window_start}–{selectedRecommendation.window_end}，作業成本 {money.format(selectedRecommendation.action_cost_usd)}，預期回復 <b>{selectedRecommendation.speed_loss_recovery_pp.toFixed(1)}pp SL</b>、每日省 {selectedRecommendation.daily_fuel_saving_tons.toFixed(2)} 噸、每月省 {money.format(selectedRecommendation.monthly_saving_usd)}。若延後，優先遞補：{selectedRecommendation.backfill.ship_name}。{selectedRecommendation.inspection_recommended && <b> 不確定性較高，建議先安排 UWI 檢查。</b>}</p><button onClick={() => onSelect(selectedRecommendation.ship_id, 'diagnose')}>查看單船診斷 <ChevronRight size={15} /></button></article>}
+        <details className="data-fallback"><summary>查看排程資料表</summary><ScheduleTable items={sortedRecommendations} onSelect={onSelect} /></details>
       </section>
       <div className="decision-grid">
         <section className="panel roi-panel">
@@ -458,22 +530,24 @@ function DecideView({ schedule, fuel, roi, selectedShipId, primaryModel, onSelec
           <details className="data-fallback"><summary>查看 What-if 資料</summary><table><thead><tr><th>清洗日</th><th>平均每日成本</th></tr></thead><tbody>{roi.target.days.filter((_, index) => index % 15 === 0).map((day, index) => <tr key={day}><td>第 {day} 天</td><td>{money.format(roi.target.avg_cost[index * 15])}</td></tr>)}</tbody></table></details>
         </section>
         <section className="panel fuel-panel">
-          <div className="panel-heading"><div><span>FUEL MARKET</span><h2>五油種行情與有效油價</h2></div><Fuel /></div>
+          <div className="panel-heading"><div><span>FUEL MARKET</span><h2>市場行情與決策情境價</h2></div><b className={`market-badge market-${fuel.market_status}`}>{fuel.market_status}</b></div>
           <div className="fuel-cards">{fuel.prices.map((price) => <article key={price.grade}><span>{price.grade}{price.estimated && <em>EST</em>}</span><strong>${number.format(price.usd_per_ton)}</strong><small>USD / mt</small></article>)}</div>
+          {fuel.prices.length === 0 && <div className="market-unavailable"><Fuel /><strong>即時行情暫時無法取得</strong><span>ROI 使用上方明確標示的手動情境價。</span></div>}
           <EChart option={fuelOption} className="fuel-chart" ariaLabel="VLSFO 近期價格趨勢" />
           <details className="data-fallback"><summary>查看燃油趨勢資料表</summary><div className="table-wrap"><table><thead><tr><th>日期</th><th>VLSFO USD/mt</th><th>來源</th></tr></thead><tbody>{fuel.history.map((point) => <tr key={point.date}><td>{point.date}</td><td>${point.vlsfo_usd_per_ton.toFixed(2)}</td><td>{point.source}</td></tr>)}</tbody></table></div></details>
-          <p className="source-note">Source: <a href={fuel.prices[0]?.source_url} target="_blank" rel="noreferrer">Ship & Bunker</a> fallback / USDA trend · {fuel.effective_price.method}</p>
+          <p className="source-note">{fuel.prices[0] ? <>Source: <a href={fuel.prices[0].source_url} target="_blank" rel="noreferrer">{fuel.prices[0].source}</a> · </> : null}{fuel.effective_price.method}</p>
         </section>
       </div>
     </section>
   )
 }
 
-function GanttRow({ item, asOf, horizon, dryDock, selected, onOpen }: { item: ScheduleItem; asOf: string; horizon: number; dryDock?: string; selected: boolean; onOpen: (item: ScheduleItem) => void }) {
-  const start = (new Date(item.window_start).getTime() - new Date(asOf).getTime()) / 86400000
-  const end = (new Date(item.window_end).getTime() - new Date(asOf).getTime()) / 86400000
-  const ddDay = dryDock ? (new Date(dryDock).getTime() - new Date(asOf).getTime()) / 86400000 : null
-  return <button className={`gantt-row ${selected ? 'selected' : ''}`} onClick={() => onOpen(item)}><span className="gantt-name"><b>{item.ship_name}</b><small>{item.ship_id}</small></span><span className="gantt-track"><span className="today-line" aria-hidden="true" /><span className={`gantt-bar action-${item.action.replace('+', '-plus-')}`} style={{ left: `${Math.max(0, start / horizon * 100)}%`, width: `${Math.max(5, (end - start) / horizon * 100)}%` }}>{item.action}</span>{ddDay !== null && ddDay >= 0 && ddDay <= horizon && <span className="dd-block" style={{ left: `${ddDay / horizon * 100}%` }}>DD</span>}</span><span className="gantt-impact">+{item.speed_loss_recovery_pp.toFixed(1)}pp<small>{money.format(item.monthly_saving_usd)}/月</small></span></button>
+function GanttRow({ item, timelineStart, totalDays, todayRatio, dryDock, events, selected, onOpen }: { item: ScheduleItem; timelineStart: string; totalDays: number; todayRatio: number; dryDock?: string; events: ScheduleResponse['maintenance_events']; selected: boolean; onOpen: (item: ScheduleItem) => void }) {
+  const day = (value: string) => (new Date(value).getTime() - new Date(timelineStart).getTime()) / 86400000
+  const start = day(item.window_start)
+  const end = day(item.window_end)
+  const ddDay = dryDock ? day(dryDock) : null
+  return <button className={`gantt-row ${selected ? 'selected' : ''}`} onClick={() => onOpen(item)}><span className="gantt-name"><b>{item.ship_name}</b><small>{item.ship_id}</small></span><span className="gantt-track"><span className="today-line" style={{ left: `${todayRatio * 100}%` }} aria-hidden="true" />{events.map((event) => { const position = day(event.date); return position >= 0 && position <= totalDays ? <span key={`${event.date}-${event.type}`} className="event-mark" title={`${event.date} ${event.type}`} style={{ left: `${position / totalDays * 100}%` }}>{event.type}</span> : null })}<span className={`gantt-bar action-${item.action.replace('+', '-plus-')}`} style={{ left: `${Math.max(0, start / totalDays * 100)}%`, width: `${Math.max(2.5, (end - start) / totalDays * 100)}%` }}>{item.action}</span>{ddDay !== null && ddDay >= 0 && ddDay <= totalDays && <span className="dd-block" style={{ left: `${ddDay / totalDays * 100}%` }}>DD</span>}</span><span className="gantt-impact">+{item.speed_loss_recovery_pp.toFixed(1)}pp<small>{money.format(item.monthly_saving_usd)}/月</small></span></button>
 }
 
 function Metric({ label, value, unit, tone, spark }: { label: string; value: string; unit?: string; tone?: 'teal' | 'amber' | 'red'; spark?: number[] }) {
@@ -501,24 +575,20 @@ function LogTable({ entries }: { entries: LogEntry[] }) {
   return <div className="table-wrap"><table><thead><tr><th>日期</th><th>類型</th><th>均速</th><th>DailyFOC</th><th>風級</th><th>SL</th><th>超額油耗</th></tr></thead><tbody>{entries.slice(0, 30).map((entry, index) => entry.kind === 'event' ? <tr className="event-row" key={`${entry.date}-${index}`}><td>{entry.date}</td><td colSpan={6}>◆ {entry.event_type} · {entry.notes || '水下事件'}</td></tr> : <tr key={`${entry.date}-${index}`}><td>{entry.date}</td><td>正午日報</td><td>{entry.avg_speed?.toFixed(1)} kn</td><td>{entry.daily_foc?.toFixed(1)} t</td><td>{entry.wind_scale ?? '—'}</td><td>{entry.speed_loss_pct?.toFixed(1)}%</td><td>{entry.excess_foc_tons?.toFixed(1)} t</td></tr>)}</tbody></table></div>
 }
 
-function NoonReportForm({ shipId, onUploaded }: { shipId: string; onUploaded: () => Promise<void> | void }) {
+function NoonReportUpload({ onUploaded }: { onUploaded: () => Promise<void> | void }) {
+  const [result, setResult] = useState<NoonReportImportResponse | null>(null)
   const [message, setMessage] = useState('')
   const [busy, setBusy] = useState(false)
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
-    const data = new FormData(event.currentTarget)
+    const file = new FormData(event.currentTarget).get('file')
+    if (!(file instanceof File) || file.size === 0) return
     setBusy(true)
     setMessage('')
     try {
-      const result = await api.noonReport({
-        ship_id: shipId,
-        report_date: String(data.get('report_date')),
-        avg_speed: Number(data.get('avg_speed')),
-        daily_foc: Number(data.get('daily_foc')),
-        wind_scale: Number(data.get('wind_scale')),
-        full_speed_hours: Number(data.get('full_speed_hours')),
-      })
-      setMessage(`已更新：Speed Loss ${result.speed_loss_pct.toFixed(1)}%，超額油耗 ${result.excess_foc_tons.toFixed(1)} 噸。`)
+      const response = await api.importNoonReport(file)
+      setResult(response)
+      setMessage(`已處理 ${response.summary.rows} 列；接受 ${response.summary.accepted} 列，拒絕 ${response.summary.rejected} 列。`)
       await onUploaded()
     } catch (reason) {
       setMessage(reason instanceof Error ? reason.message : '上傳失敗')
@@ -526,7 +596,7 @@ function NoonReportForm({ shipId, onUploaded }: { shipId: string; onUploaded: ()
       setBusy(false)
     }
   }
-  return <details className="noon-upload"><summary><Upload size={14} />上傳今日正午日報（Demo）</summary><form onSubmit={submit}><label>日期<input name="report_date" type="date" defaultValue={new Date().toISOString().slice(0, 10)} required /></label><label>均速<input name="avg_speed" type="number" min="1" max="30" step="0.1" defaultValue="15.5" required /></label><label>DailyFOC<input name="daily_foc" type="number" min="1" step="0.1" defaultValue="38.5" required /></label><label>風級<input name="wind_scale" type="number" min="0" max="12" step="1" defaultValue="3" required /></label><label>全速時數<input name="full_speed_hours" type="number" min="1" max="24" step="0.5" defaultValue="24" required /></label><button className="primary-action" disabled={busy}>{busy ? '更新中…' : '上傳並即時評分'}</button></form>{message && <p aria-live="polite">{message}</p>}</details>
+  return <section className="settings-section"><div className="settings-section-heading"><div><span>CSV IMPORT</span><h3>正午日報批次匯入</h3></div><a className="secondary-action" href="/api/noon-report/template" download>下載標準 CSV 範本</a></div><p>每列代表一艘船的一天；正確列會匯入，錯誤列會保留原因。同船同日資料會更新覆蓋。</p><form className="settings-upload" onSubmit={submit}><label className="upload-zone"><Upload size={30} /><strong>選擇標準正午日報 CSV</strong><span>最大 5MB</span><input name="file" type="file" accept=".csv,text/csv" required /></label><button className="primary-action" disabled={busy}>{busy ? '驗證與匯入中…' : '驗證並匯入'}</button></form>{message && <p className="import-message" aria-live="polite">{message}</p>}{result && result.errors.length > 0 && <div className="import-errors"><strong>需要修正的資料列</strong><ul>{result.errors.map((error) => <li key={`${error.row}-${error.message}`}>第 {error.row} 列：{error.message}</li>)}</ul></div>}</section>
 }
 
 function TrendTable({ detail, forecasts, visibleModels }: { detail: ShipDetail; forecasts: Record<string, ForecastResponse>; visibleModels: string[] }) {
@@ -538,17 +608,27 @@ function ScheduleTable({ items, onSelect }: { items: ScheduleItem[]; onSelect: (
 }
 
 function FuelTicker({ fuel, paused, setPaused }: { fuel: FuelPriceResponse; paused: boolean; setPaused: (paused: boolean) => void }) {
-  const content = fuel.prices.map((price) => <span key={price.grade}><b>{price.grade}</b> ${number.format(price.usd_per_ton)}{price.estimated && <em>EST</em>}</span>)
-  return <div className="fuel-ticker" role="region" aria-label="五油種燃油價格看板"><strong><Fuel size={14} />FUEL WATCH</strong><div className={paused ? 'paused' : ''}><div>{content}{content}</div></div><button onClick={() => setPaused(!paused)} aria-pressed={paused}>{paused ? <Play size={14} /> : <Pause size={14} />}<span>{paused ? '繼續' : '暫停'}</span></button></div>
+  const statusLabel = { live: '最新', cached: '快取', stale: '資料延遲', unavailable: '行情暫無' }[fuel.market_status]
+  const content = fuel.prices.length ? [...fuel.prices, ...fuel.prices] : []
+  return <div className={`fuel-ticker market-${fuel.market_status}`} role="region" aria-label="船用燃油價格跑馬燈"><strong><Fuel size={18} /><span>FUEL WATCH<small>{fuel.port} · {statusLabel}</small></span></strong><div className={paused ? 'paused' : ''}><div>{content.length ? content.map((price, index) => <span key={`${price.grade}-${index}`}><b>{price.grade}</b> ${number.format(price.usd_per_ton)} <small>USD/mt · {price.as_of}</small>{price.estimated && <em>EST</em>}</span>) : <span>市場來源暫時無法取得；決策頁使用明確標示的手動情境價。</span>}</div></div><button onClick={() => setPaused(!paused)} aria-pressed={paused}>{paused ? <Play size={16} /> : <Pause size={16} />}<span>{paused ? '繼續' : '暫停'}</span></button></div>
 }
 
 function AlertDrawer({ alerts, open, onClose, onSelect }: { alerts: AlertsResponse | null; open: boolean; onClose: () => void; onSelect: (alertId: string, shipId: string) => void }) {
-  return <aside className={`alert-drawer ${open ? 'open' : ''}`} aria-hidden={!open} inert={!open} aria-label="警報中心"><div className="drawer-heading"><div><span>ALERT CENTER</span><h2>警報中心</h2></div><button onClick={onClose} aria-label="關閉警報中心"><X /></button></div><div className="channel-state"><span>站內 ●</span><span>SES {alerts?.channels.ses === 'configured' ? '●' : '○'}</span><span>Discord {alerts?.channels.discord === 'configured' ? '●' : '○'}</span></div>{alerts?.alerts.map((alert) => <button className={`alert-item ${alert.read ? 'read' : ''}`} key={alert.id} onClick={() => onSelect(alert.id, alert.ship_id)}><span>{alert.severity === 'critical' ? <AlertTriangle /> : <Bell />}</span><strong>{alert.ship_name}</strong><p>{alert.message}</p><small>{alert.created_at}</small></button>)}{!alerts?.alerts.length && <div className="empty-state"><CheckCircle2 />目前沒有警報</div>}</aside>
+  const [width, setWidth] = useState(420)
+  const startResize = (event: ReactPointerEvent<HTMLDivElement>) => {
+    event.currentTarget.setPointerCapture(event.pointerId)
+    const move = (moveEvent: PointerEvent) => setWidth(Math.max(320, Math.min(window.innerWidth * .5, window.innerWidth - moveEvent.clientX)))
+    const stop = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', stop) }
+    window.addEventListener('pointermove', move)
+    window.addEventListener('pointerup', stop)
+  }
+  const changeWidth = (delta: number) => setWidth((current) => Math.max(320, Math.min(window.innerWidth * .5, current + delta)))
+  return <aside className={`alert-drawer ${open ? 'open' : ''}`} style={{ width: `min(${width}px, 95vw)` }} aria-hidden={!open} inert={!open} aria-label="警報中心"><div className="drawer-resizer" role="separator" aria-label="調整警報側欄寬度" aria-orientation="vertical" tabIndex={open ? 0 : -1} onPointerDown={startResize} onKeyDown={(event) => { if (event.key === 'ArrowLeft') changeWidth(24); if (event.key === 'ArrowRight') changeWidth(-24) }} /><div className="drawer-heading"><div><span>ALERT CENTER</span><h2>警報中心</h2></div><button onClick={onClose} aria-label="關閉警報中心"><X /></button></div><div className="channel-state"><span>站內 ●</span><span>SES {alerts?.channels.ses === 'configured' ? '●' : '○'}</span><span>Discord {alerts?.channels.discord === 'configured' ? '●' : '○'}</span></div>{alerts?.alerts.map((alert) => <button className={`alert-item ${alert.read ? 'read' : ''}`} key={alert.id} onClick={() => onSelect(alert.id, alert.ship_id)}><span>{alert.severity === 'critical' ? <AlertTriangle /> : <Bell />}</span><strong>{alert.ship_name}</strong><p>{alert.message}</p><small>{alert.created_at}</small></button>)}{!alerts?.alerts.length && <div className="empty-state"><CheckCircle2 />目前沒有警報</div>}</aside>
 }
 
-function ToolDialog({ tool, onClose, shipId, alerts }: { tool: Tool; onClose: () => void; shipId: string; alerts: AlertsResponse | null }) {
+function ToolDialog({ tool, onClose, shipId, alerts, fuel, models, onModelsChanged, onReportsImported }: { tool: Tool; onClose: () => void; shipId: string; alerts: AlertsResponse | null; fuel: FuelPriceResponse | null; models: ModelInfo[]; onModelsChanged: () => Promise<void>; onReportsImported: () => Promise<void> }) {
   if (!tool) return null
-  return <div className="dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose() }}><section className="tool-dialog" role="dialog" aria-modal="true" aria-labelledby="tool-title"><div className="drawer-heading"><div><span>HULLWATCH TOOL</span><h2 id="tool-title">{tool === 'advisor' ? 'AI 顧問' : tool === 'inspect' ? '水下判讀' : '系統設定'}</h2></div><button onClick={onClose} aria-label="關閉"><X /></button></div>{tool === 'advisor' && <AdvisorTool />}{tool === 'inspect' && <InspectTool shipId={shipId} />}{tool === 'settings' && <SettingsTool alerts={alerts} />}</section></div>
+  return <div className="dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose() }}><section className={`tool-dialog ${tool === 'settings' ? 'settings-dialog' : ''}`} role="dialog" aria-modal="true" aria-labelledby="tool-title"><div className="drawer-heading"><div><span>HULLWATCH TOOL</span><h2 id="tool-title">{tool === 'advisor' ? 'AI 顧問' : tool === 'inspect' ? '水下判讀' : '系統設定'}</h2></div><button onClick={onClose} aria-label="關閉"><X /></button></div>{tool === 'advisor' && <AdvisorTool />}{tool === 'inspect' && <InspectTool shipId={shipId} />}{tool === 'settings' && <SettingsTool alerts={alerts} fuel={fuel} models={models} onModelsChanged={onModelsChanged} onReportsImported={onReportsImported} />}</section></div>
 }
 
 function AdvisorTool() {
@@ -566,8 +646,30 @@ function InspectTool({ shipId }: { shipId: string }) {
   return <form className="tool-body" onSubmit={submit}><label className="upload-zone"><ImageUp size={36} /><strong>上傳船殼水下照片</strong><span>JPEG / PNG，最大 8MB</span><input name="image" type="file" accept="image/jpeg,image/png" required /></label><button className="primary-action" disabled={busy}>{busy ? 'Bedrock 判讀中…' : '開始判讀'}</button>{result && <pre className="inspection-result">{JSON.stringify(result, null, 2)}</pre>}</form>
 }
 
-function SettingsTool({ alerts }: { alerts: AlertsResponse | null }) {
-  return <div className="tool-body settings-list"><article><strong>資料模式</strong><span>LIVE · FastAPI</span></article><article><strong>主題</strong><span>可由頂部切換，偏好已儲存</span></article><article><strong>通知通道</strong><span>SES：{alerts?.channels.ses} · Discord：{alerts?.channels.discord}</span></article><article><strong>油價</strong><span>具來源 fallback；估算油種以 EST 標註</span></article></div>
+function SettingsTool({ alerts, fuel, models, onModelsChanged, onReportsImported }: { alerts: AlertsResponse | null; fuel: FuelPriceResponse | null; models: ModelInfo[]; onModelsChanged: () => Promise<void>; onReportsImported: () => Promise<void> }) {
+  const [section, setSection] = useState<'data' | 'models' | 'sources' | 'interface'>('data')
+  return <div className="settings-layout"><nav aria-label="設定分類"><button className={section === 'data' ? 'active' : ''} onClick={() => setSection('data')}>資料匯入</button><button className={section === 'models' ? 'active' : ''} onClick={() => setSection('models')}>模型管理</button><button className={section === 'sources' ? 'active' : ''} onClick={() => setSection('sources')}>資料來源</button><button className={section === 'interface' ? 'active' : ''} onClick={() => setSection('interface')}>介面與通知</button></nav><div className="settings-content">{section === 'data' && <NoonReportUpload onUploaded={onReportsImported} />}{section === 'models' && <ModelManager models={models} onChanged={onModelsChanged} />}{section === 'sources' && <section className="settings-section"><div className="settings-section-heading"><div><span>MARKET DATA</span><h3>油價來源與狀態</h3></div></div><div className="settings-list"><article><strong>目前狀態</strong><span>{fuel?.market_status ?? 'unknown'}</span></article><article><strong>市場</strong><span>{fuel?.port ?? '—'}</span></article><article><strong>更新策略</strong><span>每 {fuel?.refresh_interval_hours ?? 6} 小時；{fuel?.stale_after_hours ?? 24} 小時後標示延遲</span></article><article><strong>行情來源</strong><span>Ship & Bunker Singapore／USDA Open Ag Transport Data</span></article></div></section>}{section === 'interface' && <section className="settings-section"><div className="settings-list"><article><strong>資料模式</strong><span>LIVE · FastAPI</span></article><article><strong>主題</strong><span>由頂部切換</span></article><article><strong>通知通道</strong><span>SES：{alerts?.channels.ses} · Discord：{alerts?.channels.discord}</span></article></div></section>}</div></div>
+}
+
+function ModelManager({ models, onChanged }: { models: ModelInfo[]; onChanged: () => Promise<void> }) {
+  const [manifest, setManifest] = useState('')
+  const [message, setMessage] = useState('')
+  const [busy, setBusy] = useState(false)
+  useEffect(() => { if (!manifest) api.modelTemplate().then((value) => setManifest(JSON.stringify(value, null, 2))) }, [manifest])
+  const submit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    const artifact = new FormData(event.currentTarget).get('artifact')
+    if (!(artifact instanceof File) || artifact.size === 0) return
+    setBusy(true); setMessage('')
+    try {
+      const result = await api.uploadModel(manifest, artifact)
+      setMessage(result.validation?.passed ? '候選模型已通過共同驗證集，可手動啟用。' : `模型已完成驗證但未通過門檻：MAE ${result.validation?.candidate_mae ?? '—'}。`)
+      await onChanged()
+    } catch (reason) { setMessage(reason instanceof Error ? reason.message : '模型上傳失敗') } finally { setBusy(false) }
+  }
+  const activate = async (id: string) => { setBusy(true); try { await api.activateModel(id); await onChanged(); setMessage(`已啟用 ${id}`) } catch (reason) { setMessage(reason instanceof Error ? reason.message : '啟用失敗') } finally { setBusy(false) } }
+  const restore = async () => { setBusy(true); try { await api.restoreModel(); await onChanged(); setMessage('已回復內建線性結垢趨勢模型。') } finally { setBusy(false) } }
+  return <section className="settings-section"><div className="settings-section-heading"><div><span>MODEL REGISTRY</span><h3>Speed Loss 趨勢模型</h3></div><button className="secondary-action" onClick={restore} disabled={busy}>回復內建模型</button></div><div className="model-registry">{models.map((model) => <article key={model.id} className={model.is_primary ? 'active' : ''}><div><strong>{model.name}</strong><small>{model.id} · {model.version ?? 'builtin'} · {model.model_format ?? 'builtin'}</small></div><span>{model.is_primary ? '使用中' : model.status ?? '可用'}</span>{model.validation && <p>候選 MAE {model.validation.candidate_mae}／現行 {model.validation.current_model_mae} · {model.validation.rows} 筆</p>}{model.status === 'validated' && !model.is_primary && <button onClick={() => activate(model.id)} disabled={busy}>啟用</button>}</article>)}</div><form className="model-upload" onSubmit={submit}><label>模型 manifest<textarea rows={13} value={manifest} onChange={(event) => setManifest(event.target.value)} spellCheck={false} /></label><label className="upload-zone"><Upload size={30} /><strong>選擇 XGBoost JSON 模型</strong><span>第一版只接受資料型模型檔；不接受 pickle/joblib</span><input name="artifact" type="file" accept=".json,application/json" required /></label><button className="primary-action" disabled={busy}>{busy ? '檢查與驗證中…' : '上傳為候選模型'}</button></form>{message && <p className="import-message" aria-live="polite">{message}</p>}</section>
 }
 
 function LoadingScreen() { return <div className="loading-screen"><span className="brand-mark"><Ship /></span><strong>HULLWATCH</strong><p>載入船隊效能資料…</p></div> }

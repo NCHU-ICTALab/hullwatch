@@ -32,6 +32,18 @@ export interface ModelInfo {
   validation_mape: number | null
   needs_speed: boolean
   is_primary: boolean
+  version?: string
+  model_format?: string
+  status?: 'active' | 'available' | 'candidate' | 'validated' | 'rejected'
+  validation?: null | {
+    rows: number
+    candidate_mae: number
+    current_model_mae: number
+    max_allowed_mae: number
+    finite: boolean
+    in_range: boolean
+    passed: boolean
+  }
 }
 
 export interface TrendPoint {
@@ -147,14 +159,22 @@ export interface ScheduleItem {
   inspection_recommended: boolean
   backfill: { ship_id: string; ship_name: string }
   read_only: true
+  speed_loss_pct: number
+  excess_cost_per_day: number
+  risk_rank: number
 }
 
 export interface ScheduleResponse {
   as_of: string
   horizon_days: number
+  past_days: number
+  future_days: number
+  timeline_start: string
+  timeline_end: string
   primary_model_id: string
   recommendations: ScheduleItem[]
   dry_docks: { ship_id: string; date: string; read_only: true }[]
+  maintenance_events: { ship_id: string; date: string; type: string; notes: string }[]
 }
 
 export interface FuelPriceResponse {
@@ -171,6 +191,16 @@ export interface FuelPriceResponse {
   }[]
   history: { date: string; vlsfo_usd_per_ton: number; source: string }[]
   effective_price: { usd_per_ton: number; method: string; estimated: boolean }
+  fetched_at: string | null
+  market_status: 'live' | 'cached' | 'stale' | 'unavailable'
+  refresh_interval_hours: number
+  stale_after_hours: number
+}
+
+export interface NoonReportImportResponse {
+  summary: { rows: number; accepted: number; rejected: number; updated: number }
+  results: { row: number; ship_id: string; report_date: string; speed_loss_pct: number; excess_foc_tons: number }[]
+  errors: { row: number; message: string }[]
 }
 
 export interface AlertItem {

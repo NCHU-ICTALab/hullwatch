@@ -59,3 +59,9 @@ BEDROCK_KB_ID = _s("HW_BEDROCK_KB_ID", "")
 # --- notifications (empty means configured channel is disabled) ---
 SES_FROM_EMAIL = _s("HW_SES_FROM_EMAIL", "")
 DISCORD_WEBHOOK_URL = _s("HW_DISCORD_WEBHOOK_URL", "")
+
+# --- fuel market ---
+FUEL_LIVE_ENABLED = _s("HW_FUEL_LIVE_ENABLED", "1").lower() not in {"0", "false", "no"}
+FUEL_REFRESH_HOURS = int(_f("HW_FUEL_REFRESH_HOURS", 6))
+FUEL_STALE_HOURS = int(_f("HW_FUEL_STALE_HOURS", 24))
+FUEL_HTTP_TIMEOUT_SECONDS = _f("HW_FUEL_HTTP_TIMEOUT", 8.0)
