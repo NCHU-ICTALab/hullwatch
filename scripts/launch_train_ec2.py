@@ -38,6 +38,7 @@ UPLOADS = [
     (ROOT / "data" / "submission" / "predictions.csv", "data/predictions.csv"),
 ]
 RESULT_KEY = "results/results.tar.gz"
+LOG_KEY = "results/train.log"
 
 
 def session() -> boto3.Session:
@@ -54,23 +55,28 @@ def session() -> boto3.Session:
         region_name=env.get("AWS_DEFAULT_REGION", "us-east-1"))
 
 
-def user_data(gets: dict[str, str], put_url: str) -> str:
+def user_data(gets: dict[str, str], put_url: str, log_put_url: str) -> str:
     dl = "\n".join(
         f"curl -sSf -o '{dst}' '{url}'" for dst, url in gets.items())
     return f"""#!/bin/bash
 set -x
 exec > /var/log/hullwatch-train.log 2>&1
-dnf install -y python3.11 python3.11-pip git tar
+# log 心跳：每 60 秒把訓練 log 推上 S3，外部可即時觀察
+(while true; do curl -s -X PUT -T /var/log/hullwatch-train.log '{log_put_url}' || true; sleep 60; done) &
+BEACON=$!
+dnf install -y python3.11 python3.11-pip git tar libgomp
 git clone {REPO} /opt/hullwatch
 cd /opt/hullwatch
 mkdir -p data/yangming-aws-summit-hackathon data/artifacts data/submission results
 {dl}
 python3.11 -m pip install -q -r requirements.txt lightgbm
 python3.11 -m app.pipeline.ingest_yangming data/yangming-aws-summit-hackathon
-python3.11 scripts/run_experiments.py --out results
+python3.11 scripts/run_experiments.py --out results || echo EXPERIMENTS-FAILED
 cp /var/log/hullwatch-train.log results/train.log || true
 tar czf /tmp/results.tar.gz -C results .
 curl -sSf -X PUT -T /tmp/results.tar.gz '{put_url}'
+kill $BEACON || true
+curl -s -X PUT -T /var/log/hullwatch-train.log '{log_put_url}' || true
 echo TRAINING-COMPLETE
 """
 
@@ -95,6 +101,9 @@ def launch(ses: boto3.Session) -> None:
     put_url = s3.generate_presigned_url("put_object",
                                         Params={"Bucket": BUCKET, "Key": RESULT_KEY},
                                         ExpiresIn=EXPIRE)
+    log_put_url = s3.generate_presigned_url("put_object",
+                                            Params={"Bucket": BUCKET, "Key": LOG_KEY},
+                                            ExpiresIn=EXPIRE)
     print(f"[*] 資料已上傳 s3://{BUCKET}")
 
     ec2 = ses.client("ec2")
@@ -113,7 +122,7 @@ def launch(ses: boto3.Session) -> None:
             Filters=[{"Name": "group-name", "Values": [TAG]}])["SecurityGroups"][0]["GroupId"]
     r = ec2.run_instances(
         ImageId=ami, InstanceType=INSTANCE_TYPE, MinCount=1, MaxCount=1,
-        SecurityGroupIds=[sg], UserData=user_data(gets, put_url),
+        SecurityGroupIds=[sg], UserData=user_data(gets, put_url, log_put_url),
         BlockDeviceMappings=[{"DeviceName": "/dev/xvda",
                               "Ebs": {"VolumeSize": 20, "VolumeType": "gp3"}}],
         TagSpecifications=[{"ResourceType": "instance",
@@ -131,7 +140,7 @@ def _mine(ec2):
     return [i for res in r["Reservations"] for i in res["Instances"]]
 
 
-def status(ses) -> None:
+def status(ses, show_log: bool = False) -> None:
     for i in _mine(ses.client("ec2")):
         print(i["InstanceId"], i["State"]["Name"], i["InstanceType"],
               i.get("LaunchTime", ""))
@@ -141,6 +150,14 @@ def status(ses) -> None:
         print(f"[結果已就緒] {h['ContentLength']} bytes, {h['LastModified']}")
     except Exception:
         print("（結果尚未上傳）")
+    if show_log:
+        try:
+            log = s3.get_object(Bucket=BUCKET, Key=LOG_KEY)["Body"].read().decode(
+                "utf-8", "replace")
+            print("--- train.log 尾端 ---")
+            print("\n".join(log.splitlines()[-30:]))
+        except Exception as e:
+            print(f"（無 log：{type(e).__name__}）")
 
 
 def fetch(ses) -> None:
@@ -166,12 +183,13 @@ def teardown(ses) -> None:
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--status", action="store_true")
+    ap.add_argument("--log", action="store_true")
     ap.add_argument("--fetch", action="store_true")
     ap.add_argument("--teardown", action="store_true")
     args = ap.parse_args()
     ses = session()
-    if args.status:
-        status(ses)
+    if args.status or args.log:
+        status(ses, show_log=args.log)
     elif args.fetch:
         fetch(ses)
     elif args.teardown:
