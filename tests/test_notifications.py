@@ -117,3 +117,68 @@ def test_discord_rejects_invalid_webhook_and_status_is_self_service(tmp_path):
     except ValueError as exc:
         assert "Discord Webhook" in str(exc)
     assert store.channel_status() == {"ses": "not_configured", "discord": "self_service"}
+
+
+def _ships_status():
+    return [
+        {"ship_id": "HW-001", "ship_name": "Alpha", "status": "watch",
+         "speed_loss_pct": 6.2, "excess_cost_per_day": 4100},
+        {"ship_id": "HW-002", "ship_name": "Bravo", "status": "ok",
+         "speed_loss_pct": 2.1, "excess_cost_per_day": 800},
+    ]
+
+
+def test_welcome_notification_on_create(tmp_path):
+    ses = FakeSesClient()
+    store = NotificationSubscriptionStore(
+        tmp_path / "subscriptions.json",
+        ses_from_email="sender@example.com", ses_client_factory=lambda: ses,
+    )
+    created = store.create("email", "captain@example.com", ["HW-001"], kind="alert")
+    assert created["kind"] == "alert"
+    result = store.send_welcome(created["id"], _ships_status(), 5.0)
+    assert result["delivered"] is True
+    body = ses.calls[0]["Message"]["Body"]["Text"]["Data"]
+    assert "訂閱確認" in body and "預警通知" in body and "Alpha" in body
+
+
+def test_noon_report_updates_digest_vs_alert_threshold(tmp_path):
+    ses = FakeSesClient()
+    store = NotificationSubscriptionStore(
+        tmp_path / "subscriptions.json",
+        ses_from_email="sender@example.com", ses_client_factory=lambda: ses,
+    )
+    digest_sub = store.create("email", "d@example.com", ["HW-001"])          # 預設 digest
+    alert_sub = store.create("email", "a@example.com", ["HW-001"], kind="alert")
+
+    # 更新後 SL 3.0：digest 照寄、alert 低於門檻靜默
+    low = [{"ship_id": "HW-001", "ship_name": "Alpha",
+            "report_date": "2026-07-15", "speed_loss_pct": 3.0}]
+    out = store.notify_noon_report_updates(low, _ships_status(), 5.0)
+    assert out["notified"] == 1
+    statuses = {r["id"]: r.get("status") for r in out["results"]}
+    assert statuses[alert_sub["id"]] == "below_threshold"
+    assert ses.calls[-1]["Destination"]["ToAddresses"] == ["d@example.com"]
+
+    # 更新後 SL 8.0：兩者都寄；alert 主旨帶預警
+    high = [{"ship_id": "HW-001", "ship_name": "Alpha",
+             "report_date": "2026-07-15", "speed_loss_pct": 8.0}]
+    out = store.notify_noon_report_updates(high, _ships_status(), 5.0)
+    assert out["notified"] == 2
+    subjects = [c["Message"]["Subject"]["Data"] for c in ses.calls]
+    assert any("預警" in s for s in subjects)
+
+    # 沒訂閱的船更新：兩者都靜默
+    other = [{"ship_id": "HW-002", "ship_name": "Bravo",
+              "report_date": "2026-07-15", "speed_loss_pct": 9.9}]
+    out = store.notify_noon_report_updates(other, _ships_status(), 5.0)
+    assert out["notified"] == 0 and out["results"] == []
+
+
+def test_invalid_kind_rejected(tmp_path):
+    store = NotificationSubscriptionStore(tmp_path / "subscriptions.json")
+    try:
+        store.create("email", "x@example.com", ["HW-001"], kind="hourly")
+        raise AssertionError("未知訂閱類型應被拒絕")
+    except ValueError as exc:
+        assert "訂閱類型" in str(exc)

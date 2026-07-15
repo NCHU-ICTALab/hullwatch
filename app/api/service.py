@@ -352,7 +352,15 @@ class FleetService:
         return self.fuel_market.snapshot()
 
     # ---------- noon-report log ----------
-    def ingest_noon_report(self, report: dict) -> dict:
+    def _notify_noon_report(self, updates: list[dict]) -> dict:
+        """規則 1：上傳新正午日報才觸發訂閱通知；失敗不可拖垮上傳本身。"""
+        try:
+            return self.notification_subscriptions.notify_noon_report_updates(
+                updates, self.fleet_overview()["ships"], config.WATCH_THRESHOLD_PCT)
+        except Exception as exc:  # noqa: BLE001
+            return {"updates": len(updates), "notified": 0, "error": str(exc)[:120]}
+
+    def ingest_noon_report(self, report: dict, notify: bool = True) -> dict:
         ship_id = str(report["ship_id"])
         fleet_index = self.fleet.index[self.fleet["ship_id"] == ship_id]
         if len(fleet_index) == 0:
@@ -423,7 +431,7 @@ class FleetService:
             self.fleet.loc[idx, "days_to_threshold"] = days_to_threshold(
                 speed_loss, growth, config.CLEANING_THRESHOLD_PCT,
             )
-        return {
+        response = {
             "accepted": True,
             "updated": updated,
             "ship_id": ship_id,
@@ -431,6 +439,14 @@ class FleetService:
             "speed_loss_pct": round(speed_loss, 2),
             "excess_foc_tons": round(excess_foc, 2),
         }
+        if notify:
+            ship_name = str(self.fleet.loc[idx, "ship_name"])
+            response["notifications"] = self._notify_noon_report([{
+                "ship_id": ship_id, "ship_name": ship_name,
+                "report_date": response["report_date"],
+                "speed_loss_pct": response["speed_loss_pct"],
+            }])
+        return response
 
     def ingest_noon_report_csv(self, frame: pd.DataFrame) -> dict:
         required = ["ship_id", "report_date", "avg_speed", "daily_foc", "wind_scale", "full_speed_hours"]
@@ -461,12 +477,24 @@ class FleetService:
                 if not 0 < numeric["full_speed_hours"] <= 24:
                     raise ValueError("全速時數必須介於 0–24 小時")
                 pd.Timestamp(report["report_date"])
-                result = self.ingest_noon_report(report)
+                result = self.ingest_noon_report(report, notify=False)  # 批次結束才一次通知
                 updated += int(result["updated"])
                 results.append({"row": line, **result})
             except (KeyError, ValueError, TypeError) as exc:
                 message = f"未知船舶 {report.get('ship_id')}" if isinstance(exc, KeyError) else str(exc)
                 errors.append({"row": line, "message": message})
+        # 規則 1：整批只寄一次（每艘船取本批最新一筆的 Speed Loss）
+        latest_by_ship: dict[str, dict] = {}
+        names = dict(zip(self.fleet["ship_id"].astype(str), self.fleet["ship_name"].astype(str)))
+        for item in sorted(results, key=lambda r: r["report_date"]):
+            latest_by_ship[item["ship_id"]] = {
+                "ship_id": item["ship_id"],
+                "ship_name": names.get(item["ship_id"], item["ship_id"]),
+                "report_date": item["report_date"],
+                "speed_loss_pct": item["speed_loss_pct"],
+            }
+        notifications = (self._notify_noon_report(list(latest_by_ship.values()))
+                         if latest_by_ship else {"updates": 0, "notified": 0, "results": []})
         return {
             "summary": {
                 "rows": len(frame),
@@ -476,6 +504,7 @@ class FleetService:
             },
             "results": results,
             "errors": errors,
+            "notifications": notifications,
         }
 
     def ship_log(self, ship_id: str, days: int = 30) -> dict:
@@ -554,10 +583,12 @@ class FleetService:
             "subscriptions": self.notification_subscriptions.list_public(),
             "available_ships": ships,
             "channels": self.notification_subscriptions.channel_status(),
+            "watch_threshold_pct": config.WATCH_THRESHOLD_PCT,
         }
 
     def create_notification_subscription(
-        self, channel: str, destination: str | None, ship_ids: list[str]
+        self, channel: str, destination: str | None, ship_ids: list[str],
+        kind: str = "digest",
     ) -> dict:
         known = set(self.fleet["ship_id"].astype(str))
         unknown = sorted(set(ship_ids) - known)
@@ -565,7 +596,14 @@ class FleetService:
             raise ValueError(f"未知船舶：{', '.join(unknown)}")
         if not ship_ids:
             raise ValueError("請至少選擇一艘船")
-        return self.notification_subscriptions.create(channel, destination, ship_ids)
+        created = self.notification_subscriptions.create(channel, destination, ship_ids, kind)
+        # 規則 2：訂閱當下寄確認通知（失敗不阻擋訂閱成立，狀態如實回報）
+        try:
+            welcome = self.notification_subscriptions.send_welcome(
+                created["id"], self.fleet_overview()["ships"], config.WATCH_THRESHOLD_PCT)
+        except Exception as exc:  # noqa: BLE001
+            welcome = {"delivered": False, "status": "error", "reason": str(exc)[:120]}
+        return {**created, "welcome": welcome}
 
     def delete_notification_subscription(self, subscription_id: str) -> dict:
         self.notification_subscriptions.delete(subscription_id)

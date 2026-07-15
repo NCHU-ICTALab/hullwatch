@@ -88,6 +88,7 @@ class NotificationSubscriptionStore:
         return {
             "id": subscription["id"],
             "channel": channel,
+            "kind": subscription.get("kind", "digest"),
             "destination_masked": masked,
             "ship_ids": list(subscription["ship_ids"]),
             "created_at": subscription["created_at"],
@@ -96,9 +97,12 @@ class NotificationSubscriptionStore:
     def list_public(self) -> list[dict]:
         return [self._public(item) for item in self._load()]
 
-    def create(self, channel: str, destination: str | None, ship_ids: list[str]) -> dict:
+    def create(self, channel: str, destination: str | None, ship_ids: list[str],
+               kind: str = "digest") -> dict:
         if channel not in {"email", "discord"}:
             raise ValueError("通知通道只接受 email 或 discord")
+        if kind not in {"digest", "alert"}:
+            raise ValueError("訂閱類型只接受 digest（每日摘要）或 alert（預警）")
         normalized_destination = (destination or "").strip()
         if channel == "email" and not EMAIL_PATTERN.fullmatch(normalized_destination):
             raise ValueError("請輸入有效的 Email 收件地址")
@@ -108,6 +112,7 @@ class NotificationSubscriptionStore:
         subscription = {
             "id": uuid4().hex,
             "channel": channel,
+            "kind": kind,  # digest＝每日摘要；alert＝預警（SL 越過留意門檻才寄）
             # discord：自填 webhook（空值＝沿用系統頻道，向後相容）
             "destination": normalized_destination or None,
             "ship_ids": list(dict.fromkeys(ship_ids)),
@@ -134,55 +139,120 @@ class NotificationSubscriptionStore:
             "discord": "configured" if self.discord_webhook_url else "self_service",
         }
 
-    def send_digest(self, subscription_id: str, ships: list[dict]) -> dict:
-        subscription = next((item for item in self._load() if item["id"] == subscription_id), None)
-        if subscription is None:
-            raise KeyError(subscription_id)
-        selected = [ship for ship in ships if ship["ship_id"] in subscription["ship_ids"]]
-        lines = ["HullWatch 船隊摘要", ""]
-        if selected:
-            lines.extend(
-                f"{ship['ship_name']} ({ship['ship_id']})｜{ship['status']}｜"
-                f"Speed Loss {ship['speed_loss_pct']:.1f}%｜"
-                f"超額成本 US${ship['excess_cost_per_day']:,.0f}/日"
-                for ship in selected
-            )
-        else:
-            lines.append("目前訂閱範圍內沒有船舶資料。")
-        message = "\n".join(lines)
-        channel = subscription["channel"]
+    # ---------- 寄送機制（SES／Discord 共用） ----------
 
+    def _deliver(self, subscription: dict, subject: str, message: str) -> dict:
+        channel = subscription["channel"]
         if channel == "email":
             if not self.ses_from_email:
-                return {"delivered": False, "status": "not_configured", "ship_count": len(selected)}
+                return {"delivered": False, "status": "not_configured", "channel": channel}
             response = self.ses_client_factory().send_email(
                 Source=self.ses_from_email,
                 Destination={"ToAddresses": [subscription["destination"]]},
                 Message={
-                    "Subject": {"Data": "HullWatch 船隊效能摘要", "Charset": "UTF-8"},
+                    "Subject": {"Data": subject, "Charset": "UTF-8"},
                     "Body": {"Text": {"Data": message, "Charset": "UTF-8"}},
                 },
             )
-            message_id = response.get("MessageId")
-        else:
-            # 訂閱自填 webhook 優先；留空時退回系統頻道（向後相容）
-            webhook_url = subscription.get("destination") or self.discord_webhook_url
-            if not webhook_url:
-                return {"delivered": False, "status": "not_configured", "ship_count": len(selected)}
-            client = self.discord_client_factory()
-            try:
-                response = client.post(webhook_url, json={"content": message[:2000]})
-                response.raise_for_status()
-            finally:
-                close = getattr(client, "close", None)
-                if close:
-                    close()
-            message_id = None
+            return {"delivered": True, "status": "delivered", "channel": channel,
+                    "message_id": response.get("MessageId")}
+        # 訂閱自填 webhook 優先；留空時退回系統頻道（向後相容）
+        webhook_url = subscription.get("destination") or self.discord_webhook_url
+        if not webhook_url:
+            return {"delivered": False, "status": "not_configured", "channel": channel}
+        client = self.discord_client_factory()
+        try:
+            response = client.post(webhook_url, json={"content": message[:2000]})
+            response.raise_for_status()
+        finally:
+            close = getattr(client, "close", None)
+            if close:
+                close()
+        return {"delivered": True, "status": "delivered", "channel": channel, "message_id": None}
 
-        return {
-            "delivered": True,
-            "status": "delivered",
-            "channel": channel,
-            "ship_count": len(selected),
-            "message_id": message_id,
-        }
+    @staticmethod
+    def _ship_line(ship: dict) -> str:
+        return (f"{ship['ship_name']} ({ship['ship_id']})｜{ship['status']}｜"
+                f"Speed Loss {ship['speed_loss_pct']:.1f}%｜"
+                f"超額成本 US${ship['excess_cost_per_day']:,.0f}/日")
+
+    def _digest_message(self, subscription: dict, ships: list[dict], header: str) -> tuple[str, int]:
+        selected = [ship for ship in ships if ship["ship_id"] in subscription["ship_ids"]]
+        lines = [header, ""]
+        if selected:
+            lines.extend(self._ship_line(ship) for ship in selected)
+        else:
+            lines.append("目前訂閱範圍內沒有船舶資料。")
+        return "\n".join(lines), len(selected)
+
+    # ---------- 各類通知 ----------
+
+    def send_digest(self, subscription_id: str, ships: list[dict]) -> dict:
+        subscription = next((item for item in self._load() if item["id"] == subscription_id), None)
+        if subscription is None:
+            raise KeyError(subscription_id)
+        message, count = self._digest_message(subscription, ships, "HullWatch 船隊摘要")
+        result = self._deliver(subscription, "HullWatch 船隊效能摘要", message)
+        return {**result, "ship_count": count}
+
+    def send_welcome(self, subscription_id: str, ships: list[dict],
+                     watch_threshold: float) -> dict:
+        """訂閱建立當下的確認通知（規則 2）：附訂閱船舶目前狀態。"""
+        subscription = next((item for item in self._load() if item["id"] == subscription_id), None)
+        if subscription is None:
+            raise KeyError(subscription_id)
+        kind_label = ("每日摘要通知" if subscription.get("kind", "digest") == "digest"
+                      else f"預警通知（Speed Loss > {watch_threshold:g}% 才通知）")
+        message, count = self._digest_message(
+            subscription, ships,
+            f"HullWatch 訂閱確認：{kind_label}\n訂閱船舶目前狀態如下——")
+        result = self._deliver(subscription, "HullWatch 訂閱確認", message)
+        return {**result, "ship_count": count}
+
+    def notify_noon_report_updates(self, updates: list[dict], ships: list[dict],
+                                   watch_threshold: float) -> dict:
+        """上傳新正午日報後的自動通知（規則 1/3）。
+
+        updates：本次被接受的日報 [{ship_id, ship_name, report_date, speed_loss_pct}, …]。
+        digest 訂閱：訂閱船舶有更新就寄整份摘要；alert 訂閱：只有更新後
+        Speed Loss > watch_threshold 的船才寄，否則靜默。回傳彙整，永不 raise。
+        """
+        results = []
+        notified = 0
+        updated_ids = {u["ship_id"] for u in updates}
+        for subscription in self._load():
+            covered = [u for u in updates if u["ship_id"] in subscription["ship_ids"]]
+            if not covered:
+                continue
+            kind = subscription.get("kind", "digest")
+            try:
+                if kind == "digest":
+                    names = "、".join(sorted({u["ship_id"] for u in covered}))
+                    message, _ = self._digest_message(
+                        subscription, ships,
+                        f"HullWatch 摘要（新正午日報：{names}）")
+                    result = self._deliver(subscription, "HullWatch 船隊摘要（日報更新）", message)
+                else:
+                    over = [u for u in covered
+                            if float(u.get("speed_loss_pct") or 0) > watch_threshold]
+                    if not over:
+                        results.append({"id": subscription["id"], "kind": kind,
+                                        "status": "below_threshold"})
+                        continue
+                    lines = [f"HullWatch 預警：Speed Loss 超過留意門檻 {watch_threshold:g}%", ""]
+                    lines.extend(
+                        f"{u.get('ship_name', u['ship_id'])} ({u['ship_id']})｜"
+                        f"日報 {u.get('report_date', '')}｜Speed Loss {float(u['speed_loss_pct']):.1f}%"
+                        for u in over)
+                    lines.append("\n建議檢視儀表板並評估清洗排程。")
+                    result = self._deliver(
+                        subscription,
+                        f"【HullWatch 預警】{over[0]['ship_id']} 等 {len(over)} 艘 Speed Loss 越過留意門檻",
+                        "\n".join(lines))
+                notified += int(result.get("delivered", False))
+                results.append({"id": subscription["id"], "kind": kind, **result})
+            except Exception as exc:  # noqa: BLE001 —— 通知失敗不可拖垮日報上傳
+                results.append({"id": subscription["id"], "kind": kind,
+                                "status": "error", "reason": str(exc)[:120]})
+        return {"updates": len(updates), "ships": sorted(updated_ids),
+                "notified": notified, "results": results}

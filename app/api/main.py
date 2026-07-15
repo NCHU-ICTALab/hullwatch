@@ -36,6 +36,7 @@ class NoonReportBody(BaseModel):
 
 class NotificationSubscriptionBody(BaseModel):
     channel: Literal["email", "discord"]
+    kind: Literal["digest", "alert"] = "digest"
     destination: str | None = None
     ship_ids: list[str]
 
@@ -234,7 +235,7 @@ def notification_subscriptions():
 def create_notification_subscription(body: NotificationSubscriptionBody):
     try:
         return _svc(app.state).create_notification_subscription(
-            body.channel, body.destination, body.ship_ids
+            body.channel, body.destination, body.ship_ids, body.kind
         )
     except ValueError as exc:
         raise HTTPException(422, str(exc))

@@ -231,15 +231,18 @@ export interface AlertsResponse {
 export interface NotificationSubscription {
   id: string
   channel: 'email' | 'discord'
+  kind: 'digest' | 'alert'
   destination_masked: string
   ship_ids: string[]
   created_at: string
+  welcome?: { delivered: boolean; status: string }
 }
 
 export interface NotificationSubscriptionsResponse {
   subscriptions: NotificationSubscription[]
   available_ships: { ship_id: string; ship_name: string }[]
   channels: { ses: string; discord: string }
+  watch_threshold_pct: number
 }
 
 export interface LogEntry {

@@ -58,7 +58,7 @@ export const api = {
   markAlertRead: (alertId: string) =>
     request<{ id: string; read: boolean }>(`/api/alerts/${encodeURIComponent(alertId)}/read`, { method: 'POST' }),
   notificationSubscriptions: () => request<NotificationSubscriptionsResponse>('/api/notification-subscriptions'),
-  createNotificationSubscription: (body: { channel: 'email' | 'discord'; destination?: string; ship_ids: string[] }) =>
+  createNotificationSubscription: (body: { channel: 'email' | 'discord'; kind: 'digest' | 'alert'; destination?: string; ship_ids: string[] }) =>
     request<NotificationSubscription>('/api/notification-subscriptions', {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
     }),
