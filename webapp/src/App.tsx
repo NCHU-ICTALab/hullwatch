@@ -20,6 +20,7 @@ import { api } from './api'
 import { AttributionSplitBar, DashboardToolsMenu } from './components/DiagnosisWidgets'
 import { EChart } from './components/EChart'
 import { MarkdownContent } from './components/MarkdownContent'
+import { FleetScheduleDisclosure, StatusFilterButtons, WorkflowSteps, type StatusFilterOption } from './components/WorkflowControls'
 import { advisorWidthBounds, allocateEventLanes, clampAdvisorWidth, cleaningSavings, decisionModelOptions, EVENT_LANE_HEIGHT, fleetShipMatchesFilters, fuelHistoryForGrade, GANTT_EVENT_LABEL_CLEARANCE_DAYS, layoutTrendEventMarkers, maintenanceActionLabel, maintenanceActionPresentation, speedLossMinimumForStatus } from './dashboardLogic'
 import type {
   AdvisorResponse,
@@ -118,7 +119,6 @@ function App() {
         setFuel(fuelData)
         setFuelScenario(fuelData.effective_price.usd_per_ton)
         setAlerts(alertData)
-        setSelectedShipId(fleetData.ships[0]?.ship_id ?? '')
         setPrimaryModel(modelData.models.find((model) => model.is_primary)?.id ?? 'linear-growth')
         setVisibleModels(modelData.models.slice(0, 2).map((model) => model.id))
       })
@@ -204,6 +204,7 @@ function App() {
   const filteredShips = useMemo(() => fleet?.ships.filter((ship) => (
     fleetShipMatchesFilters(ship, statusFilter, appliedSlMinimum, fleet.stats.watch_threshold_pct)
   )) ?? [], [appliedSlMinimum, fleet, statusFilter])
+  const selectedShip = fleet?.ships.find((ship) => ship.ship_id === selectedShipId) ?? null
 
   const selectShip = (shipId: string, nextView: View = 'diagnose') => {
     setSelectedShipId(shipId)
@@ -269,6 +270,7 @@ function App() {
           advisorOpen={advisorOpen}
           onAdvisor={() => setAdvisorOpen((open) => !open)}
           onSettings={() => setSettingsOpen(true)}
+          selectedShip={selectedShip}
         />
 
         {error && <div className="error-banner" role="alert"><AlertTriangle size={18} />{error}<button onClick={() => setError('')}>關閉</button></div>}
@@ -288,6 +290,7 @@ function App() {
               applySlMinimum={setAppliedSlMinimum}
               filterPending={slMinimum !== appliedSlMinimum}
               onSelect={selectShip}
+              schedule={schedule}
             />
           )}
           {view === 'diagnose' && (
@@ -341,7 +344,7 @@ function App() {
   )
 }
 
-function Header({ view, setView, dark, setDark, alerts, alertOpen, onAlert, onAlertClose, onAlertSelect, advisorOpen, onAdvisor, onSettings }: {
+function Header({ view, setView, dark, setDark, alerts, alertOpen, onAlert, onAlertClose, onAlertSelect, advisorOpen, onAdvisor, onSettings, selectedShip }: {
   view: View
   setView: (view: View) => void
   dark: boolean
@@ -354,25 +357,15 @@ function Header({ view, setView, dark, setDark, alerts, alertOpen, onAlert, onAl
   advisorOpen: boolean
   onAdvisor: () => void
   onSettings: () => void
+  selectedShip: Pick<FleetShip, 'ship_id' | 'ship_name'> | null
 }) {
-  const tabs: { id: View; step: string; zh: string; en: string }[] = [
-    { id: 'fleet', step: '①', zh: '總覽', en: 'FLEET' },
-    { id: 'diagnose', step: '②', zh: '診斷', en: 'DIAGNOSE' },
-    { id: 'decide', step: '③', zh: '決策', en: 'DECIDE' },
-  ]
   return (
     <header className="topbar">
       <button className="brand" onClick={() => setView('fleet')} aria-label="HullWatch 船隊總覽">
         <span className="brand-mark"><Ship size={22} /></span>
         <span><strong>HULLWATCH</strong><small>FLEET PERFORMANCE</small></span>
       </button>
-      <nav className="story-tabs" aria-label="三段故事流">
-        {tabs.map((tab) => (
-          <button key={tab.id} className={view === tab.id ? 'active' : ''} aria-current={view === tab.id ? 'page' : undefined} onClick={() => setView(tab.id)}>
-            <span>{tab.step}</span>{tab.zh}<small>{tab.en}</small>
-          </button>
-        ))}
-      </nav>
+      <WorkflowSteps currentView={view} selectedShip={selectedShip} onNavigate={setView} />
       <div className="header-tools">
         <button id="advisor-trigger" className="advisor-trigger" onClick={onAdvisor} aria-expanded={advisorOpen} aria-controls="advisor-panel"><Bot size={16} />AI 顧問<kbd>⌘/Ctrl I</kbd></button>
         <DashboardToolsMenu onSettings={onSettings} />
@@ -386,7 +379,7 @@ function Header({ view, setView, dark, setDark, alerts, alertOpen, onAlert, onAl
   )
 }
 
-function FleetView({ fleet, fuel, tickerPaused, setTickerPaused, ships, statusFilter, setStatusFilter, slMinimum, setSlMinimum, applySlMinimum, filterPending, onSelect }: {
+function FleetView({ fleet, fuel, tickerPaused, setTickerPaused, ships, statusFilter, setStatusFilter, slMinimum, setSlMinimum, applySlMinimum, filterPending, onSelect, schedule }: {
   fleet: FleetResponse
   fuel: FuelPriceResponse | null
   tickerPaused: boolean
@@ -399,6 +392,7 @@ function FleetView({ fleet, fuel, tickerPaused, setTickerPaused, ships, statusFi
   applySlMinimum: (value: number) => void
   filterPending: boolean
   onSelect: (shipId: string) => void
+  schedule: ScheduleResponse | null
 }) {
   const resultsContentRef = useRef<HTMLDivElement>(null)
   const [reservedResultsHeight, setReservedResultsHeight] = useState<number | null>(null)
@@ -435,6 +429,11 @@ function FleetView({ fleet, fuel, tickerPaused, setTickerPaused, ships, statusFi
     : status === 'watch'
       ? `Speed Loss ${number.format(statusPolicy.watch)}% 以上未達 ${number.format(statusPolicy.action)}%，或預估 ${fleet.stats.watch_window_days} 天內達清洗門檻`
       : `Speed Loss 低於 ${number.format(statusPolicy.watch)}%，且未預估在 ${fleet.stats.watch_window_days} 天內達清洗門檻`
+  const statusOptions: StatusFilterOption[] = (['all', 'action', 'watch', 'ok'] as const).map((status) => ({
+    id: status,
+    label: status === 'all' ? '全部' : statusLabel(status),
+    title: status === 'all' ? '顯示所有營運狀態' : statusDescription(status),
+  }))
   return (
     <section className="page fleet-page" aria-labelledby="fleet-title">
       <PageHeading eyebrow="01 / FLEET HEALTH" title="船隊健康總覽" subtitle={`${fleet.stats.n_ships} 艘船 · 依 Speed Loss 風險與清洗急迫度排序`} />
@@ -446,8 +445,9 @@ function FleetView({ fleet, fuel, tickerPaused, setTickerPaused, ships, statusFi
         <Metric label="每月超額成本" value={money.format(fleet.stats.monthly_excess_cost_usd)} tone="red" />
         <Metric label="每月超額碳排" value={number.format(fleet.stats.monthly_excess_co2_tons)} unit="tCO₂" />
       </div>
+      {schedule && <FleetScheduleDisclosure><ScheduleGantt schedule={schedule} onOpen={(item) => onSelect(item.ship_id)} onSelect={(shipId) => onSelect(shipId)} /></FleetScheduleDisclosure>}
       <div className="filter-bar panel">
-        <fieldset aria-describedby="fleet-status-policy"><legend>狀態篩選</legend>{(['all', 'action', 'watch', 'ok'] as const).map((status) => <button key={status} className={statusFilter === status ? 'selected' : ''} title={status === 'all' ? '顯示所有營運狀態' : statusDescription(status)} onClick={() => changeStatus(status)}>{status === 'all' ? '全部' : statusLabel(status)}</button>)}</fieldset>
+        <fieldset aria-describedby="fleet-status-policy"><legend>狀態篩選</legend><StatusFilterButtons selected={statusFilter} options={statusOptions} onSelect={changeStatus} /></fieldset>
         <DualInput label="Speed Loss 下限" value={slMinimum} min={0} max={15} step={0.5} unit="%" onChange={setSlMinimum} />
         <span className="result-count" aria-live="polite">顯示 {ships.length} / {fleet.stats.n_ships} 艘</span>
         <small className="status-policy-note" id="fleet-status-policy">* 以平滑後 Speed Loss 分級；未達 {number.format(statusPolicy.watch)}% 但預估 {fleet.stats.watch_window_days} 天內達 {number.format(statusPolicy.action)}% 者也列入密切留意。</small>
@@ -599,31 +599,13 @@ function DecideView({ schedule, fuel, roi, selectedShipId, primaryModel, onSelec
     schedule.recommendations.find((item) => item.ship_id === selectedShipId) ?? schedule.recommendations[0] ?? null,
   )
   const [cleaningDay, setCleaningDay] = useState(roi.target.best_day ?? 0)
-  const [sortBy, setSortBy] = useState<'id' | 'name' | 'risk' | 'cost' | 'speed-loss'>('id')
-  const [zoom, setZoom] = useState(1.5)
   const [fuelGrade, setFuelGrade] = useState('VLSFO')
-  const ganttViewport = useRef<HTMLDivElement>(null)
   useEffect(() => setCleaningDay(roi.target.best_day ?? 0), [roi.target.best_day])
   useEffect(() => {
     setSelectedRecommendation(
       schedule.recommendations.find((item) => item.ship_id === selectedShipId) ?? schedule.recommendations[0] ?? null,
     )
   }, [schedule.recommendations, selectedShipId])
-  const sortedRecommendations = useMemo(() => [...schedule.recommendations].sort((a, b) => {
-    if (sortBy === 'name') return a.ship_name.localeCompare(b.ship_name, 'zh-Hant')
-    if (sortBy === 'risk') return a.risk_rank - b.risk_rank || b.excess_cost_per_day - a.excess_cost_per_day
-    if (sortBy === 'cost') return b.excess_cost_per_day - a.excess_cost_per_day
-    if (sortBy === 'speed-loss') return b.speed_loss_pct - a.speed_loss_pct
-    return a.ship_id.localeCompare(b.ship_id, undefined, { numeric: true })
-  }), [schedule.recommendations, sortBy])
-  const timelineDays = schedule.past_days + schedule.future_days
-  const todayRatio = schedule.past_days / timelineDays
-  const scrollGantt = (direction: -1 | 1) => ganttViewport.current?.scrollBy({ left: direction * 360, behavior: 'smooth' })
-  const scrollToday = () => {
-    const viewport = ganttViewport.current
-    if (!viewport) return
-    viewport.scrollTo({ left: Math.max(0, viewport.scrollWidth * todayRatio - viewport.clientWidth / 2), behavior: 'smooth' })
-  }
   const chartText = dark ? '#A7B8C0' : '#4A5A63'
   const chartGrid = dark ? '#2A3B43' : '#D8DFE4'
   const selectedFuelHistory = useMemo(
@@ -648,22 +630,11 @@ function DecideView({ schedule, fuel, roi, selectedShipId, primaryModel, onSelec
   }), [chartGrid, chartText, fuelGrade, selectedFuelHistory])
   return (
     <section className="page decide-page" aria-labelledby="decide-title">
-      <PageHeading eyebrow="03 / MAINTENANCE DECISION" title="維護排程與經濟決策" subtitle={`未來 ${schedule.horizon_days} 天 · 唯讀系統建議 · 主模型 ${primaryModel}`} />
+      <PageHeading eyebrow="03 / MAINTENANCE DECISION" title="維護排程與經濟決策" subtitle={`未來 ${schedule.horizon_days} 天 · 唯讀系統建議 · 主模型 ${primaryModel}`} badge={`目前船舶 · ${roi.target.ship_name}（${selectedShipId}）`} />
       <section className="panel schedule-panel">
         <div className="panel-heading"><div><span>RECOMMENDED WINDOWS</span><h2>全船隊清潔建議甘特圖</h2></div><span className="model-basis">過去 {schedule.past_days} 天 · 未來 {schedule.future_days} 天</span></div>
         {selectedRecommendation && <article id="selected-decision" tabIndex={-1} className={`schedule-detail ${focusKey ? 'focus-highlight' : ''}`} aria-live="polite"><div><span>建議詳情 · 唯讀</span><strong>{selectedRecommendation.ship_name} / {maintenanceActionLabel(selectedRecommendation.action)}</strong></div><p>{selectedRecommendation.window_start}–{selectedRecommendation.window_end}，作業成本 {money.format(selectedRecommendation.action_cost_usd)}，預期回復 <b>{selectedRecommendation.speed_loss_recovery_pp.toFixed(1)}pp SL</b>、每日省 {selectedRecommendation.daily_fuel_saving_tons.toFixed(2)} 噸、每月省 {money.format(selectedRecommendation.monthly_saving_usd)}。若延後，優先遞補：{selectedRecommendation.backfill.ship_name}。{selectedRecommendation.inspection_recommended && <b> 不確定性較高，建議先安排水下檢查。</b>}</p><button onClick={() => onSelect(selectedRecommendation.ship_id, 'diagnose')}>查看單船診斷 <ChevronRight size={15} /></button></article>}
-        <div className="gantt-controls">
-          <label>排列方式<select value={sortBy} onChange={(event) => setSortBy(event.target.value as typeof sortBy)}><option value="id">船舶 ID</option><option value="name">船名</option><option value="risk">警報風險</option><option value="cost">每日超額成本</option><option value="speed-loss">Speed Loss</option></select></label>
-          <label>時間縮放<input type="range" min="1" max="3" step="0.25" value={zoom} onChange={(event) => setZoom(Number(event.target.value))} /><span>{Math.round(zoom * 100)}%</span></label>
-          <div><button onClick={() => scrollGantt(-1)}>← 前段</button><button onClick={scrollToday}>回到今天</button><button onClick={() => scrollGantt(1)}>後段 →</button></div>
-        </div>
-        <div className="gantt-viewport" ref={ganttViewport}>
-          <div className="gantt" style={{ width: `${zoom * 100}%` }} role="region" aria-label="全船隊過去 90 天至未來 180 天清潔建議甘特圖" tabIndex={0}>
-            <div className="gantt-axis"><span>{schedule.timeline_start}</span><span>−23 天</span><span>+45 天</span><span>+113 天</span><span>{schedule.timeline_end}</span></div>
-            {sortedRecommendations.map((item) => <GanttRow key={item.ship_id} item={item} timelineStart={schedule.timeline_start} totalDays={timelineDays} todayRatio={todayRatio} dryDock={schedule.dry_docks.find((event) => event.ship_id === item.ship_id)?.date} events={schedule.maintenance_events.filter((event) => event.ship_id === item.ship_id && event.type !== 'DD')} selected={selectedRecommendation?.ship_id === item.ship_id} onOpen={(item) => { setSelectedRecommendation(item); onDecisionShipChange(item.ship_id) }} />)}
-          </div>
-        </div>
-        <details className="data-fallback"><summary>查看排程與維護事件資料表</summary><ScheduleTable items={sortedRecommendations} onSelect={onSelect} /><MaintenanceEventTable schedule={schedule} /></details>
+        <ScheduleGantt schedule={schedule} selectedShipId={selectedRecommendation?.ship_id} onOpen={(item) => { setSelectedRecommendation(item); onDecisionShipChange(item.ship_id) }} onSelect={onSelect} />
       </section>
       <div className="decision-grid">
         <section className="panel roi-panel">
@@ -687,6 +658,46 @@ function DecideView({ schedule, fuel, roi, selectedShipId, primaryModel, onSelec
       </div>
     </section>
   )
+}
+
+function ScheduleGantt({ schedule, selectedShipId, onOpen, onSelect }: {
+  schedule: ScheduleResponse
+  selectedShipId?: string
+  onOpen: (item: ScheduleItem) => void
+  onSelect: (shipId: string, view?: View) => void
+}) {
+  const [sortBy, setSortBy] = useState<'id' | 'name' | 'risk' | 'cost' | 'speed-loss'>('id')
+  const [zoom, setZoom] = useState(1.5)
+  const ganttViewport = useRef<HTMLDivElement>(null)
+  const sortedRecommendations = useMemo(() => [...schedule.recommendations].sort((a, b) => {
+    if (sortBy === 'name') return a.ship_name.localeCompare(b.ship_name, 'zh-Hant')
+    if (sortBy === 'risk') return a.risk_rank - b.risk_rank || b.excess_cost_per_day - a.excess_cost_per_day
+    if (sortBy === 'cost') return b.excess_cost_per_day - a.excess_cost_per_day
+    if (sortBy === 'speed-loss') return b.speed_loss_pct - a.speed_loss_pct
+    return a.ship_id.localeCompare(b.ship_id, undefined, { numeric: true })
+  }), [schedule.recommendations, sortBy])
+  const timelineDays = schedule.past_days + schedule.future_days
+  const todayRatio = schedule.past_days / timelineDays
+  const scrollGantt = (direction: -1 | 1) => ganttViewport.current?.scrollBy({ left: direction * 360, behavior: 'smooth' })
+  const scrollToday = () => {
+    const viewport = ganttViewport.current
+    if (!viewport) return
+    viewport.scrollTo({ left: Math.max(0, viewport.scrollWidth * todayRatio - viewport.clientWidth / 2), behavior: 'smooth' })
+  }
+  return <>
+    <div className="gantt-controls">
+      <label>排列方式<select value={sortBy} onChange={(event) => setSortBy(event.target.value as typeof sortBy)}><option value="id">船舶 ID</option><option value="name">船名</option><option value="risk">警報風險</option><option value="cost">每日超額成本</option><option value="speed-loss">Speed Loss</option></select></label>
+      <label>時間縮放<input type="range" min="1" max="3" step="0.25" value={zoom} onChange={(event) => setZoom(Number(event.target.value))} /><span>{Math.round(zoom * 100)}%</span></label>
+      <div><button type="button" onClick={() => scrollGantt(-1)}>← 前段</button><button type="button" onClick={scrollToday}>回到今天</button><button type="button" onClick={() => scrollGantt(1)}>後段 →</button></div>
+    </div>
+    <div className="gantt-viewport" ref={ganttViewport}>
+      <div className="gantt" style={{ width: `${zoom * 100}%` }} role="region" aria-label={`全船隊過去 ${schedule.past_days} 天至未來 ${schedule.future_days} 天清潔建議甘特圖`} tabIndex={0}>
+        <div className="gantt-axis"><span>{schedule.timeline_start}</span><span>−23 天</span><span>+45 天</span><span>+113 天</span><span>{schedule.timeline_end}</span></div>
+        {sortedRecommendations.map((item) => <GanttRow key={item.ship_id} item={item} timelineStart={schedule.timeline_start} totalDays={timelineDays} todayRatio={todayRatio} dryDock={schedule.dry_docks.find((event) => event.ship_id === item.ship_id)?.date} events={schedule.maintenance_events.filter((event) => event.ship_id === item.ship_id && event.type !== 'DD')} selected={selectedShipId === item.ship_id} onOpen={onOpen} />)}
+      </div>
+    </div>
+    <details className="data-fallback"><summary>查看排程與維護事件資料表</summary><ScheduleTable items={sortedRecommendations} onSelect={onSelect} /><MaintenanceEventTable schedule={schedule} /></details>
+  </>
 }
 
 function GanttRow({ item, timelineStart, totalDays, todayRatio, dryDock, events, selected, onOpen }: { item: ScheduleItem; timelineStart: string; totalDays: number; todayRatio: number; dryDock?: string; events: ScheduleResponse['maintenance_events']; selected: boolean; onOpen: (item: ScheduleItem) => void }) {

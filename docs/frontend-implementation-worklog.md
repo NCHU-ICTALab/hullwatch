@@ -203,3 +203,12 @@
 - 新增 React server-render 回歸測試，覆蓋 9% 螺旋槳窄區段及工具選單不再出現水下判讀；後端測試改為確認 `/api/inspect` 回傳 404。部署畫面因 in-app Browser backend 仍為空，無法在本輪直接檢查 CloudFront；截圖中的英文 `propeller_polish` 與目前 `main` 不一致，部署端需重建並處理 CloudFront 快取。
 - LLM Wiki 航運資料目前只建立待討論範圍，不先匯入內容：候選為船舶／航線與港口、燃油與市場、航運營運術語、船體維護與法規、HullWatch 判讀與客服 SOP。下一步需先確認內部客服最常見問題、可使用來源、更新頻率及不能回答的邊界，再決定首批知識頁。
 - 驗證：rebase 至最新 `origin/main` 後 Python **76 passed**（1 個既有 Starlette deprecation warning）；Vitest **15 passed**；legacy fallback inline script 語法檢查通過；oxlint 0 warnings／0 errors；TypeScript + Vite production build 通過。Vite 既有 bundle size warning 仍在。
+
+## 2026-07-15 第十三批：工作流導覽、Fleet 甘特與產品真實性稽核
+
+- 頁首 `story-tabs` 改為內容寬度的三步驟選單，使用數字、文字與連接符呈現流程；選船前鎖定診斷／決策，選船後在導覽與頁面標題顯示目前船名與 ID。鎖定狀態使用原生 `disabled`，目前步驟使用 `aria-current="step"`。
+- Header 不再用 `1fr` 強迫三步驟撐滿；桌面與平板將品牌、步驟選單、工具列維持單行，窄螢幕才切為多列。AI 顧問 push panel 壓縮內容時，導覽標題會收斂但不換成兩行。
+- 將排程控制、時間縮放、排序、甘特圖及 a11y 資料表抽成共用 `ScheduleGantt`。Fleet 在統計卡之後新增原生 `<details>`「全船隊清潔建議甘特圖」，預設收合；決策頁沿用同一元件，避免兩份邏輯漂移。
+- Fleet 狀態篩選改為語意色：立即處置紅、密切留意琥珀、正常青綠、全部中性；選取時才填滿對應底色，仍保留可見文字、圖形符號與 `aria-pressed`，顏色不是唯一資訊。
+- 新增 [`product-truth-audit.md`](product-truth-audit.md)，逐項區分觀測真實資料、模型／規則推導、情境 proxy 與 stub／合成資料；記錄成本、碳排、歸因公式、所有模型與命題覆蓋缺口。另建立 [`llm-wiki-shipping-content-proposal.md`](llm-wiki-shipping-content-proposal.md)，在使用者確認前不直接擴充 private Wiki。
+- 回歸測試新增工作流鎖定、目前船舶、預設收合與狀態篩選 a11y 覆蓋；完整驗證為 Vitest **19 passed**、oxlint 0 warnings／0 errors、TypeScript + Vite production build 通過、Python **76 passed**（1 個既有 Starlette deprecation warning）。Vite 既有大 chunk warning 仍在；in-app Browser 可用 backend 仍為空，Header 單行與三 viewport 需本機人工視覺複驗。
