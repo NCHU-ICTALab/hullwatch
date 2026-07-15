@@ -269,6 +269,7 @@ docker run --rm -p 8000:8000 \
 | `HW_RETRIEVER` | 檢索模式：`local` 或 `bedrock_kb` | `local` |
 | `HW_BEDROCK_KB_ID` | Bedrock Knowledge Base ID | 空值 |
 | `HW_FUEL_LIVE_ENABLED` | 是否讀取外部燃油行情 | `1` |
+| `HW_RESET_DATASET_URI` | 「資料設定→資料重置」的原始資料來源（`s3://bucket/prefix/` 或本地目錄；空值＝自動偵測） | 空值 |
 | `HW_SES_FROM_EMAIL` | SES 寄件地址；空值表示停用 | 空值 |
 | `HW_SES_REGION` | SES AWS Region | `us-east-1` |
 | `HW_DISCORD_WEBHOOK_URL` | Discord webhook；空值表示停用 | 空值 |
@@ -291,6 +292,7 @@ docker run --rm -p 8000:8000 \
 - `GET /api/fuel-prices`
 - `GET /api/alerts`
 - `POST /api/noon-report/file`
+- `POST /api/data/reset`（清空站台資料並從原始資料集重建；`GET /api/data/reset/status` 輪詢進度）
 - `POST /api/advisor`
 - `POST /api/inspect`
 
