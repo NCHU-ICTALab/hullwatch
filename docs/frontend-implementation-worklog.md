@@ -172,5 +172,18 @@
 - RWD 明確分為桌面 `≥1200px`、平板 `768–1199px`、手機 `≤767px`。桌面 AI 顧問維持 440px push；平板改為 320–380px push 並把剩餘 Dashboard 簡化為單／雙欄；手機改為全寬顧問畫面，不 overlap 主內容。`≤480px` 的 KPI、頁首與控制列再收斂為單欄。
 - 決策頁上方五個油價卡改為可鍵盤操作的 `aria-pressed` 按鈕，點擊後與下拉選單共用 `fuelGrade`，同步切換折線圖、資料表與來源。
 - 「建議詳情 · 唯讀」移到甘特控制與圖表上方，從單船診斷跳轉後更快看到高亮建議。
-- private `hullwatch-data` 新增 `wiki/internal-support-v1` 審查分支：`llm-wiki/raw/` 不可變來源快照、`wiki/index.md` 最小載入入口、追加式 `log.md`、Schema、安全規則、客服流程與首批七頁知識。新增 provider-neutral `scripts/wiki_context.py`，可 validate 或依問題輸出附 source 的 bounded Markdown context，且每次自動先注入 Schema 安全契約；LLM 可維護 branch，但不得自行合併 `main`。
+- private `hullwatch-data` 新增 `wiki/internal-support-v1` 初始建置分支：`llm-wiki/raw/` 不可變來源快照、`wiki/index.md` 最小載入入口、追加式 `log.md`、Schema、安全規則、客服流程與首批七頁知識。新增 provider-neutral `scripts/wiki_context.py`，可 validate 或依問題輸出附 source 的 bounded Markdown context，且每次自動先注入 Schema 安全契約；第十批已依使用者決策直接 fast-forward 到 `main`，後續 Wiki 更新不要求 PR。
 - 驗證：Wiki **2 個 adapter tests**、實際 query smoke、內部連結、秘密模式與 38 個共享檔 manifest 均通過；前端 Vitest **10 passed**、lint 與 production build 通過。本機 API／Vite 均回應 200。in-app Browser backend 列表仍為空，三 viewport 的肉眼截圖與點擊保留人工複驗。
+
+## 2026-07-15 第十批：全站維護中文化、圖表可讀性與可縮放顧問
+
+- 維護動作統一透過資料集字典顯示官方中文名稱，不再附加 PP／UWC／UWI／DD 代碼；涵蓋診斷 KPI、延遲代價、Speed Loss 事件清單、30 日誌、建議詳情、甘特建議條、排程表與歷史維護表。
+- Speed Loss 密集維護事件保留 14 天 greedy lane 分層，每層使用固定 32px 垂直位移；圖上改用 1、2、3…編號菱形且文字置中。完整日期、中文動作與附註放在可展開清單，tooltip 同步提供中文內容，避免資料尺度壓縮後事件仍互相遮擋。
+- 甘特歷史事件改為無文字的菱形標記，完整中文名稱透過 title／aria-label 與下方事件資料表取得；建議動作條顯示中文並在空間不足時 ellipsis，避免長名稱覆蓋相鄰內容。
+- 清洗日淨節省圖把坐標軸語意移到圖外的可讀說明區；圖內只保留含單位刻度、損益兩平線與置中的最佳點標記，grid 啟用 containLabel，避免軸名稱、說明與圖標互相重疊。
+- AI 顧問右側 panel 可滑鼠／觸控拖曳調整寬度，拖曳命中區為 32px；亦可用左右方向鍵、Home／End 操作可存取 separator，雙擊回到 440px。桌機限制 360–720px、平板 300–480px、手機維持全寬畫面。
+- RWD 改用 `.app-content` 的 container query，而不是只看 viewport 或堆疊 `.advisor-open` 特例；顧問調寬後，主內容依實際剩餘寬度自然切換桌機、平板與窄版布局，維持 push、不 overlap。
+- 「前往清洗決策」增加上方間距，不再貼住延遲代價說明。
+- private `hullwatch-data` 的 `wiki/internal-support-v1` 已 fast-forward 到 `main` 並直接 push（`18c6339 → ffb112c`）；本機 `llm-wiki/.obsidian/` 保持未追蹤，沒有上傳。
+- 驗證：新增中文名稱、事件編號／32px 分層與顧問寬度邊界測試；前端 Vitest **11 passed**、oxlint 0 warnings／0 errors、TypeScript + Vite production build 通過，`git diff --check` 無空白錯誤。雙軸 review 發現並修正標記文字對比、資料值間距不等於像素間距及拖曳觸控範圍三項問題；Vite 既有 bundle size warning 仍在。
+- 視覺 QA：依 in-app Browser 規範重新連線並讀取 troubleshooting，但可用 backend 仍為空；未以其他瀏覽器工具繞過。需由使用者本機確認三 viewport、側欄拖曳、ECharts tooltip 與實際字型渲染。

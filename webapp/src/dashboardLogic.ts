@@ -1,6 +1,7 @@
 import type { FleetShip, FuelPriceResponse, ModelInfo, ScheduleResponse, ShipDetail, Status } from './types'
 
 export const EVENT_LANE_HEIGHT = 24
+export const TREND_EVENT_LANE_OFFSET_PX = 32
 const EVENT_LABEL_CLEARANCE_DAYS = 14
 
 export function allocateEventLanes(events: ScheduleResponse['maintenance_events']) {
@@ -36,7 +37,18 @@ export function maintenanceActionLabel(action?: string | null) {
   if (!source) return '—'
   const code = source.toUpperCase()
   const label = MAINTENANCE_ACTION_LABELS[code]
-  return label ? `${label}（${code}）` : source
+  return label ?? source
+}
+
+export function advisorWidthBounds(viewportWidth: number) {
+  if (viewportWidth < 768) return { min: viewportWidth, max: viewportWidth }
+  if (viewportWidth < 1200) return { min: 300, max: Math.min(480, Math.floor(viewportWidth * .5)) }
+  return { min: 360, max: Math.min(720, Math.floor(viewportWidth * .55)) }
+}
+
+export function clampAdvisorWidth(width: number, viewportWidth: number) {
+  const { min, max } = advisorWidthBounds(viewportWidth)
+  return Math.min(max, Math.max(min, width))
 }
 
 export function decisionModelOptions(models: ModelInfo[]) {
@@ -63,17 +75,18 @@ export function fleetShipMatchesFilters(
 
 export function layoutTrendEventMarkers(events: ShipDetail['events'], baseY: number) {
   const laneEnds: number[] = []
-  const laneStep = Math.max(0.65, baseY * 0.45)
-  return [...events].sort((a, b) => a.date.localeCompare(b.date)).map((event) => {
+  return [...events].sort((a, b) => a.date.localeCompare(b.date)).map((event, index) => {
     const eventDay = new Date(event.date).getTime() / 86400000
     let lane = laneEnds.findIndex((end) => eventDay - end >= EVENT_LABEL_CLEARANCE_DAYS)
     if (lane < 0) lane = laneEnds.length
     laneEnds[lane] = eventDay
     return {
       ...event,
-      abbreviation: event.type.toUpperCase(),
+      markerLabel: String(index + 1),
+      actionLabel: maintenanceActionLabel(event.type),
       lane,
-      y: baseY + lane * laneStep,
+      y: baseY,
+      offsetY: lane === 0 ? 0 : -lane * TREND_EVENT_LANE_OFFSET_PX,
     }
   })
 }

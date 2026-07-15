@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react'
 import {
   AlertTriangle,
   Bell,
@@ -22,7 +22,7 @@ import type { EChartsOption } from 'echarts'
 import { api } from './api'
 import { EChart } from './components/EChart'
 import { MarkdownContent } from './components/MarkdownContent'
-import { allocateEventLanes, cleaningSavings, decisionModelOptions, EVENT_LANE_HEIGHT, fleetShipMatchesFilters, fuelHistoryForGrade, layoutTrendEventMarkers, maintenanceActionLabel, speedLossMinimumForStatus } from './dashboardLogic'
+import { advisorWidthBounds, allocateEventLanes, clampAdvisorWidth, cleaningSavings, decisionModelOptions, EVENT_LANE_HEIGHT, fleetShipMatchesFilters, fuelHistoryForGrade, layoutTrendEventMarkers, maintenanceActionLabel, speedLossMinimumForStatus } from './dashboardLogic'
 import type {
   AdvisorResponse,
   AlertsResponse,
@@ -78,6 +78,8 @@ function App() {
   const [tickerPaused, setTickerPaused] = useState(false)
   const [alertOpen, setAlertOpen] = useState(false)
   const [advisorOpen, setAdvisorOpen] = useState(false)
+  const [viewportWidth, setViewportWidth] = useState(() => window.innerWidth)
+  const [advisorWidth, setAdvisorWidth] = useState(() => clampAdvisorWidth(440, window.innerWidth))
   const [decisionFocusKey, setDecisionFocusKey] = useState(0)
   const [primaryModelBusy, setPrimaryModelBusy] = useState(false)
   const [tool, setTool] = useState<Tool>(null)
@@ -86,11 +88,22 @@ function App() {
   const [error, setError] = useState('')
   const seenCriticalAlerts = useRef(new Set<string>())
   const requestedShipId = useRef('')
+  const advisorBounds = useMemo(() => advisorWidthBounds(viewportWidth), [viewportWidth])
 
   useEffect(() => {
     document.documentElement.classList.toggle('dark', dark)
     localStorage.setItem('hw-theme', dark ? 'dark' : 'light')
   }, [dark])
+
+  useEffect(() => {
+    const handleResize = () => {
+      const width = window.innerWidth
+      setViewportWidth(width)
+      setAdvisorWidth((current) => clampAdvisorWidth(current, width))
+    }
+    window.addEventListener('resize', handleResize)
+    return () => window.removeEventListener('resize', handleResize)
+  }, [])
 
   useEffect(() => {
     const timer = window.setTimeout(() => setAppliedSlMinimum(slMinimum), 140)
@@ -243,7 +256,7 @@ function App() {
   if (loading) return <LoadingScreen />
 
   return (
-    <div className={`app-shell ${advisorOpen ? 'advisor-open' : ''}`}>
+    <div className={`app-shell ${advisorOpen ? 'advisor-open' : ''}`} style={{ '--advisor-width': `${advisorWidth}px` } as CSSProperties}>
       <div className="app-content">
         <a className="skip-link" href="#main-content">跳至主要內容</a>
         <Header
@@ -327,7 +340,7 @@ function App() {
           onReportsImported={refreshAfterReport}
         />
       </div>
-      <AdvisorPanel open={advisorOpen} shipId={selectedShipId} onClose={() => setAdvisorOpen(false)} />
+      <AdvisorPanel open={advisorOpen} shipId={selectedShipId} width={advisorWidth} minWidth={advisorBounds.min} maxWidth={advisorBounds.max} onResize={(width) => setAdvisorWidth(clampAdvisorWidth(width, viewportWidth))} onClose={() => setAdvisorOpen(false)} />
     </div>
   )
 }
@@ -490,20 +503,20 @@ function DiagnoseView({ detail, models, forecasts, primaryModel, onPrimaryModelC
   recommendation?: ScheduleItem
   dark: boolean
 }) {
+  const eventMarkers = useMemo(() => detail ? layoutTrendEventMarkers(
+    detail.events,
+    Math.max(0.8, detail.current.threshold_pct * .12),
+  ) : [], [detail])
   const trendOption = useMemo<EChartsOption>(() => {
     if (!detail) return {}
     const chartText = dark ? '#A7B8C0' : '#4A5A63'
     const chartGrid = dark ? '#2A3B43' : '#D8DFE4'
-    const eventMarkers = layoutTrendEventMarkers(
-      detail.events,
-      Math.max(0.8, detail.current.threshold_pct * .12),
-    )
     const legendNames = ['歷史 Speed Loss']
     const series: NonNullable<EChartsOption['series']> = [{
       name: '歷史 Speed Loss', type: 'line', showSymbol: false, data: detail.series.map((point) => [point.date, point.speed_loss]), lineStyle: { width: 3, color: '#0E5E6F' }, itemStyle: { color: '#0E5E6F' },
       markLine: { silent: true, symbol: 'none', label: { formatter: `清洗門檻 ${detail.current.threshold_pct}%`, color: chartText }, lineStyle: { color: '#A33B2E', type: 'dashed', width: 2 }, data: [{ yAxis: detail.current.threshold_pct }] },
       markArea: { silent: true, itemStyle: { color: dark ? 'rgba(232,144,127,.12)' : 'rgba(163,59,46,.08)' }, data: [[{ yAxis: detail.current.threshold_pct }, { yAxis: 35 }]] },
-      markPoint: { symbol: 'diamond', symbolSize: 14, itemStyle: { color: '#C77400' }, label: { show: true, position: 'right', distance: 5, formatter: '{b}', color: chartText, fontSize: 11, fontWeight: 700 }, data: eventMarkers.map((event) => ({ name: event.abbreviation, value: event.notes, coord: [event.date, event.y] })) },
+      markPoint: { symbol: 'diamond', symbolSize: 25, itemStyle: { color: '#C77400', borderColor: dark ? '#F4F7F8' : '#FFFFFF', borderWidth: 1 }, label: { show: true, position: 'inside', formatter: '{b}', color: '#071A20', fontSize: 11, fontWeight: 800 }, tooltip: { formatter: (params) => { const data = (params as { data?: { actionLabel?: string; date?: string; notes?: string } }).data; return data ? [data.date, data.actionLabel, data.notes].filter(Boolean).join('\n') : '' } }, data: eventMarkers.map((event) => ({ name: event.markerLabel, value: event.actionLabel, actionLabel: event.actionLabel, date: event.date, notes: event.notes, coord: [event.date, event.y], symbolOffset: [0, event.offsetY] })) },
     }]
     const colors = ['#C77400', '#A33B2E', '#647984']
     visibleModels.forEach((modelId, index) => {
@@ -520,17 +533,17 @@ function DiagnoseView({ detail, models, forecasts, primaryModel, onPrimaryModelC
     })
     return {
       animation: !window.matchMedia('(prefers-reduced-motion: reduce)').matches,
-      textStyle: { color: chartText, fontSize: 14 }, tooltip: { trigger: 'axis' }, legend: { data: legendNames, bottom: 0, textStyle: { color: chartText, fontSize: 13 } },
+      textStyle: { color: chartText, fontSize: 14 }, tooltip: { trigger: 'axis', renderMode: 'richText' }, legend: { data: legendNames, bottom: 0, textStyle: { color: chartText, fontSize: 13 } },
       grid: { left: 48, right: 24, top: 32, bottom: 66 },
       xAxis: { type: 'time', axisLabel: { color: chartText, fontSize: 13 }, axisLine: { lineStyle: { color: chartGrid } } },
       yAxis: { type: 'value', name: 'Speed Loss %', nameTextStyle: { color: chartText, fontSize: 13 }, axisLabel: { color: chartText, fontSize: 13 }, splitLine: { lineStyle: { color: chartGrid } } },
       series,
     }
-  }, [dark, detail, forecasts, primaryModel, visibleModels])
+  }, [dark, detail, eventMarkers, forecasts, primaryModel, visibleModels])
 
   if (!detail) return <InlineLoading label="載入單船診斷" />
   const current = detail.current
-  const nextAction = recommendation?.action ?? '待 ROI 引擎評估'
+  const nextAction = recommendation ? maintenanceActionLabel(recommendation.action) : '待 ROI 引擎評估'
   const selectableModels = decisionModelOptions(models)
   return (
     <section className="page diagnose-page" aria-labelledby="diagnose-title">
@@ -554,8 +567,8 @@ function DiagnoseView({ detail, models, forecasts, primaryModel, onPrimaryModelC
             <DualInput label="情境船速" value={scenarioSpeed} min={12} max={20} step={0.5} unit="kn" onChange={setScenarioSpeed} />
           </div>
           <EChart option={trendOption} className="main-chart" ariaLabel={`${detail.ship_name} Speed Loss 歷史與多模型預測圖`} />
-          <p className="event-legend"><b aria-hidden="true">◆</b> 圖上只顯示分層縮寫，避免相近事件互相遮擋：PP 螺槳拋光、UWC 水下船殼清洗、UWI 水下檢查。</p>
-          {detail.events.length > 0 && <details className="data-fallback"><summary>查看維護事件說明</summary><ol className="event-list">{detail.events.map((event, index) => <li key={`${event.date}-${event.type}-${index}`}><time>{event.date}</time><b>{event.type}</b><span>{event.notes || '無附註'}</span></li>)}</ol></details>}
+          <p className="event-legend"><b aria-hidden="true">◆</b> 圖中編號對應下方維護事件清單；密集事件會分層顯示，完整動作名稱統一使用中文。</p>
+          {eventMarkers.length > 0 && <details className="data-fallback"><summary>查看維護事件說明</summary><ol className="event-list">{eventMarkers.map((event) => <li key={`${event.date}-${event.type}-${event.markerLabel}`}><b className="event-marker-number" aria-label={`圖中標記 ${event.markerLabel}`}>{event.markerLabel}</b><time>{event.date}</time><strong>{event.actionLabel}</strong><span>{event.notes || '無附註'}</span></li>)}</ol></details>}
           <details className="data-fallback"><summary>查看圖表資料表</summary><TrendTable detail={detail} forecasts={forecasts} visibleModels={visibleModels} /></details>
         </section>
         <section className="panel attribution-panel">
@@ -631,10 +644,10 @@ function DecideView({ schedule, fuel, roi, selectedShipId, primaryModel, onSelec
   const roiOption = useMemo<EChartsOption>(() => ({
     textStyle: { color: chartText, fontSize: 14 },
     tooltip: { trigger: 'axis', valueFormatter: (value) => money.format(Number(value)) },
-    grid: { left: 66, right: 26, top: 24, bottom: 44 },
-    xAxis: { type: 'category', name: '延後天數', nameTextStyle: { color: chartText, fontSize: 13 }, axisLabel: { color: chartText, fontSize: 13 }, data: roi.target.days.filter((_, index) => index % 5 === 0) },
-    yAxis: { type: 'value', name: '相較不清洗淨節省／日', nameTextStyle: { color: chartText, fontSize: 13 }, axisLabel: { color: chartText, fontSize: 13, formatter: (value: number) => money.format(value) }, splitLine: { lineStyle: { color: chartGrid } } },
-    series: [{ name: '平均每日淨節省', type: 'line', data: cleaningSavings(roi.target.no_clean_avg, roi.target.avg_cost.filter((_, index) => index % 5 === 0)), smooth: true, showSymbol: false, lineStyle: { width: 3, color: '#0E5E6F' }, areaStyle: { color: 'rgba(14,94,111,.12)' }, markLine: { data: [{ yAxis: 0, name: '損益兩平' }], lineStyle: { color: '#A33B2E', type: 'dashed' } }, markPoint: roi.target.best_day === null ? undefined : { data: [{ coord: [Math.floor(roi.target.best_day / 5), roi.target.no_clean_avg - roi.target.best_avg], name: '最佳日' }], itemStyle: { color: '#C77400' } } }],
+    grid: { left: 18, right: 22, top: 38, bottom: 18, containLabel: true },
+    xAxis: { type: 'category', axisLabel: { color: chartText, fontSize: 12, formatter: (value: string) => `第 ${value} 天`, hideOverlap: true }, data: roi.target.days.filter((_, index) => index % 5 === 0) },
+    yAxis: { type: 'value', axisLabel: { color: chartText, fontSize: 12, margin: 12, formatter: (value: number) => `${money.format(value)}/日` }, splitLine: { lineStyle: { color: chartGrid } } },
+    series: [{ name: '平均每日淨節省', type: 'line', data: cleaningSavings(roi.target.no_clean_avg, roi.target.avg_cost.filter((_, index) => index % 5 === 0)), smooth: true, showSymbol: false, lineStyle: { width: 3, color: '#0E5E6F' }, areaStyle: { color: 'rgba(14,94,111,.12)' }, markLine: { symbol: 'none', label: { position: 'insideEndTop', formatter: '損益兩平', color: chartText }, data: [{ yAxis: 0 }], lineStyle: { color: '#A33B2E', type: 'dashed' } }, markPoint: roi.target.best_day === null ? undefined : { symbolSize: 42, label: { formatter: '最佳', color: '#071A20', fontSize: 11, fontWeight: 800 }, data: [{ coord: [Math.floor(roi.target.best_day / 5), roi.target.no_clean_avg - roi.target.best_avg], name: '最佳日' }], itemStyle: { color: '#C77400' } } }],
   }), [chartGrid, chartText, roi])
   const fuelOption = useMemo<EChartsOption>(() => ({
     textStyle: { color: chartText, fontSize: 14 },
@@ -648,7 +661,7 @@ function DecideView({ schedule, fuel, roi, selectedShipId, primaryModel, onSelec
       <PageHeading eyebrow="03 / MAINTENANCE DECISION" title="維護排程與經濟決策" subtitle={`未來 ${schedule.horizon_days} 天 · 唯讀系統建議 · 主模型 ${primaryModel}`} />
       <section className="panel schedule-panel">
         <div className="panel-heading"><div><span>RECOMMENDED WINDOWS</span><h2>全船隊清潔建議甘特圖</h2></div><span className="model-basis">過去 {schedule.past_days} 天 · 未來 {schedule.future_days} 天</span></div>
-        {selectedRecommendation && <article id="selected-decision" tabIndex={-1} className={`schedule-detail ${focusKey ? 'focus-highlight' : ''}`} aria-live="polite"><div><span>建議詳情 · 唯讀</span><strong>{selectedRecommendation.ship_name} / {selectedRecommendation.action}</strong></div><p>{selectedRecommendation.window_start}–{selectedRecommendation.window_end}，作業成本 {money.format(selectedRecommendation.action_cost_usd)}，預期回復 <b>{selectedRecommendation.speed_loss_recovery_pp.toFixed(1)}pp SL</b>、每日省 {selectedRecommendation.daily_fuel_saving_tons.toFixed(2)} 噸、每月省 {money.format(selectedRecommendation.monthly_saving_usd)}。若延後，優先遞補：{selectedRecommendation.backfill.ship_name}。{selectedRecommendation.inspection_recommended && <b> 不確定性較高，建議先安排 UWI 檢查。</b>}</p><button onClick={() => onSelect(selectedRecommendation.ship_id, 'diagnose')}>查看單船診斷 <ChevronRight size={15} /></button></article>}
+        {selectedRecommendation && <article id="selected-decision" tabIndex={-1} className={`schedule-detail ${focusKey ? 'focus-highlight' : ''}`} aria-live="polite"><div><span>建議詳情 · 唯讀</span><strong>{selectedRecommendation.ship_name} / {maintenanceActionLabel(selectedRecommendation.action)}</strong></div><p>{selectedRecommendation.window_start}–{selectedRecommendation.window_end}，作業成本 {money.format(selectedRecommendation.action_cost_usd)}，預期回復 <b>{selectedRecommendation.speed_loss_recovery_pp.toFixed(1)}pp SL</b>、每日省 {selectedRecommendation.daily_fuel_saving_tons.toFixed(2)} 噸、每月省 {money.format(selectedRecommendation.monthly_saving_usd)}。若延後，優先遞補：{selectedRecommendation.backfill.ship_name}。{selectedRecommendation.inspection_recommended && <b> 不確定性較高，建議先安排水下檢查。</b>}</p><button onClick={() => onSelect(selectedRecommendation.ship_id, 'diagnose')}>查看單船診斷 <ChevronRight size={15} /></button></article>}
         <div className="gantt-controls">
           <label>排列方式<select value={sortBy} onChange={(event) => setSortBy(event.target.value as typeof sortBy)}><option value="id">船舶 ID</option><option value="name">船名</option><option value="risk">警報風險</option><option value="cost">每日超額成本</option><option value="speed-loss">Speed Loss</option></select></label>
           <label>時間縮放<input type="range" min="1" max="3" step="0.25" value={zoom} onChange={(event) => setZoom(Number(event.target.value))} /><span>{Math.round(zoom * 100)}%</span></label>
@@ -668,6 +681,7 @@ function DecideView({ schedule, fuel, roi, selectedShipId, primaryModel, onSelec
           <div className="decision-callout"><span>系統最佳日<b>{roi.target.best_day === null ? '暫不清洗' : `第 ${roi.target.best_day} 天`}</b></span><span>回本期<b>{roi.target.payback_days ?? '—'} 天</b></span><span>每日超額碳排<b>{roi.target.excess_co2_per_day} tCO₂</b></span><span>所選方案淨節省<b>{money.format(roi.target.no_clean_avg - (roi.target.avg_cost[cleaningDay] ?? roi.target.no_clean_avg))}/日</b></span></div>
           <div className="scenario-control"><DualInput label="清洗日 What-if" value={cleaningDay} min={0} max={180} step={1} unit="天後" onChange={setCleaningDay} /><DualInput label="有效油價情境" value={fuelScenario} min={300} max={1500} step={10} unit="USD/mt" onChange={setFuelScenario} /><small>情境由後端 ROI 曲線計算；不改寫行情來源。</small></div>
           <p className="chart-explanation">每一點都會重新計算「該日才清洗」在 180 天內的燃油超額成本與清洗費，再減去完全不清洗的成本；高於零代表清洗較省。</p>
+          <dl className="chart-axis-summary" aria-label="清洗日淨節省曲線坐標軸說明"><div><dt>橫軸</dt><dd>清洗延後天數</dd></div><div><dt>縱軸</dt><dd>相較不清洗淨節省（USD／日）</dd></div></dl>
           <EChart option={roiOption} className="decision-chart" ariaLabel={`${roi.target.ship_name} 未來 180 天不同清洗日相較不清洗的平均每日淨節省曲線`} />
           <details className="data-fallback"><summary>查看 What-if 資料</summary><table><thead><tr><th>清洗日</th><th>平均每日成本</th><th>相較不清洗淨節省</th></tr></thead><tbody>{roi.target.days.filter((_, index) => index % 15 === 0).map((day, index) => <tr key={day}><td>第 {day} 天</td><td>{money.format(roi.target.avg_cost[index * 15])}</td><td>{money.format(roi.target.no_clean_avg - roi.target.avg_cost[index * 15])}/日</td></tr>)}</tbody></table></details>
         </section>
@@ -694,7 +708,8 @@ function GanttRow({ item, timelineStart, totalDays, todayRatio, dryDock, events,
     ...(dryDock ? [{ ship_id: item.ship_id, date: dryDock, type: 'DD', notes: '既定乾塢事件' }] : []),
   ])
   const laneCount = Math.max(1, ...eventLanes.map(({ lane }) => lane + 1))
-  return <button className={`gantt-row ${selected ? 'selected' : ''}`} onClick={() => onOpen(item)} aria-label={`選擇 ${item.ship_name}，建議動作 ${item.action}`}><span className="gantt-name"><b>{item.ship_name}</b><small>{item.ship_id}</small></span><span className="gantt-track" style={{ height: `${laneCount * EVENT_LANE_HEIGHT + 30}px` }}><span className="today-line" style={{ left: `${todayRatio * 100}%` }} aria-hidden="true" />{eventLanes.map(({ event, lane }, index) => { const position = day(event.date); return position >= 0 && position <= totalDays ? <span key={`${event.date}-${event.type}-${index}`} className={event.type === 'DD' ? 'dd-block' : 'event-mark'} title={`${event.date} ${event.type}：${event.notes}`} style={{ left: `${position / totalDays * 100}%`, top: `${lane * EVENT_LANE_HEIGHT + 1}px` }}>{event.type}</span> : null })}<span className={`gantt-bar action-${item.action.replace('+', '-plus-')}`} style={{ left: `${Math.max(0, start / totalDays * 100)}%`, width: `${Math.max(2.5, (end - start) / totalDays * 100)}%` }}>{item.action}</span></span><span className="gantt-impact">+{item.speed_loss_recovery_pp.toFixed(1)}pp<small>{money.format(item.monthly_saving_usd)}/月</small></span></button>
+  const actionLabel = maintenanceActionLabel(item.action)
+  return <button className={`gantt-row ${selected ? 'selected' : ''}`} onClick={() => onOpen(item)} aria-label={`選擇 ${item.ship_name}，建議動作 ${actionLabel}`}><span className="gantt-name"><b>{item.ship_name}</b><small>{item.ship_id}</small></span><span className="gantt-track" style={{ height: `${laneCount * EVENT_LANE_HEIGHT + 30}px` }}><span className="today-line" style={{ left: `${todayRatio * 100}%` }} aria-hidden="true" />{eventLanes.map(({ event, lane }, index) => { const position = day(event.date); const eventLabel = maintenanceActionLabel(event.type); return position >= 0 && position <= totalDays ? <span key={`${event.date}-${event.type}-${index}`} className={event.type === 'DD' ? 'dd-block' : 'event-mark'} aria-label={`${event.date} ${eventLabel}：${event.notes || '無附註'}`} title={`${event.date} ${eventLabel}：${event.notes || '無附註'}`} style={{ left: `${position / totalDays * 100}%`, top: `${lane * EVENT_LANE_HEIGHT + 1}px` }}>◆</span> : null })}<span className={`gantt-bar action-${item.action.replace('+', '-plus-')}`} title={actionLabel} style={{ left: `${Math.max(0, start / totalDays * 100)}%`, width: `${Math.max(2.5, (end - start) / totalDays * 100)}%` }}>{actionLabel}</span></span><span className="gantt-impact">+{item.speed_loss_recovery_pp.toFixed(1)}pp<small>{money.format(item.monthly_saving_usd)}/月</small></span></button>
 }
 
 function Metric({ label, value, unit, tone, spark, compact = false }: { label: string; value: string; unit?: string; tone?: 'teal' | 'amber' | 'red'; spark?: number[]; compact?: boolean }) {
@@ -724,7 +739,7 @@ function FleetSparkTable({ ships }: { ships: FleetShip[] }) {
 }
 
 function LogTable({ entries }: { entries: LogEntry[] }) {
-  return <div className="table-wrap"><table><thead><tr><th>日期</th><th>類型</th><th>均速</th><th>DailyFOC</th><th>風級</th><th>SL</th><th>超額油耗</th></tr></thead><tbody>{entries.slice(0, 30).map((entry, index) => entry.kind === 'event' ? <tr className="event-row" key={`${entry.date}-${index}`}><td>{entry.date}</td><td colSpan={6}>◆ {entry.event_type} · {entry.notes || '水下事件'}</td></tr> : <tr key={`${entry.date}-${index}`}><td>{entry.date}</td><td>正午日報</td><td>{entry.avg_speed?.toFixed(1)} kn</td><td>{entry.daily_foc?.toFixed(1)} t</td><td>{entry.wind_scale ?? '—'}</td><td>{entry.speed_loss_pct?.toFixed(1)}%</td><td>{entry.excess_foc_tons?.toFixed(1)} t</td></tr>)}</tbody></table></div>
+  return <div className="table-wrap"><table><thead><tr><th>日期</th><th>類型</th><th>均速</th><th>DailyFOC</th><th>風級</th><th>SL</th><th>超額油耗</th></tr></thead><tbody>{entries.slice(0, 30).map((entry, index) => entry.kind === 'event' ? <tr className="event-row" key={`${entry.date}-${index}`}><td>{entry.date}</td><td colSpan={6}>◆ {maintenanceActionLabel(entry.event_type)} · {entry.notes || '水下事件'}</td></tr> : <tr key={`${entry.date}-${index}`}><td>{entry.date}</td><td>正午日報</td><td>{entry.avg_speed?.toFixed(1)} kn</td><td>{entry.daily_foc?.toFixed(1)} t</td><td>{entry.wind_scale ?? '—'}</td><td>{entry.speed_loss_pct?.toFixed(1)}%</td><td>{entry.excess_foc_tons?.toFixed(1)} t</td></tr>)}</tbody></table></div>
 }
 
 function NoonReportUpload({ onUploaded }: { onUploaded: () => Promise<void> | void }) {
@@ -774,7 +789,7 @@ function TrendTable({ detail, forecasts, visibleModels }: { detail: ShipDetail; 
 }
 
 function ScheduleTable({ items, onSelect }: { items: ScheduleItem[]; onSelect: (shipId: string, view?: View) => void }) {
-  return <div className="table-wrap"><table><thead><tr><th>船舶</th><th>動作</th><th>建議窗口</th><th>SL 回復</th><th>回本</th><th>每月節省</th><th>遞補船</th></tr></thead><tbody>{items.map((item) => <tr key={item.ship_id}><td><button className="table-link" onClick={() => onSelect(item.ship_id, 'diagnose')}>{item.ship_name}</button></td><td>{item.action}</td><td>{item.window_start}–{item.window_end}</td><td>+{item.speed_loss_recovery_pp}pp</td><td>{item.payback_days ?? '—'} 天</td><td>{money.format(item.monthly_saving_usd)}</td><td>{item.backfill.ship_name}</td></tr>)}</tbody></table></div>
+  return <div className="table-wrap"><table><thead><tr><th>船舶</th><th>動作</th><th>建議窗口</th><th>SL 回復</th><th>回本</th><th>每月節省</th><th>遞補船</th></tr></thead><tbody>{items.map((item) => <tr key={item.ship_id}><td><button className="table-link" onClick={() => onSelect(item.ship_id, 'diagnose')}>{item.ship_name}</button></td><td>{maintenanceActionLabel(item.action)}</td><td>{item.window_start}–{item.window_end}</td><td>+{item.speed_loss_recovery_pp}pp</td><td>{item.payback_days ?? '—'} 天</td><td>{money.format(item.monthly_saving_usd)}</td><td>{item.backfill.ship_name}</td></tr>)}</tbody></table></div>
 }
 
 function MaintenanceEventTable({ schedule }: { schedule: ScheduleResponse }) {
@@ -783,7 +798,7 @@ function MaintenanceEventTable({ schedule }: { schedule: ScheduleResponse }) {
     ...schedule.maintenance_events.filter((event) => event.type !== 'DD'),
     ...schedule.dry_docks.map((event) => ({ ship_id: event.ship_id, date: event.date, type: 'DD', notes: '既定乾塢事件' })),
   ].sort((a, b) => a.date.localeCompare(b.date))
-  return <div className="table-wrap"><table><caption>歷史維護與既定乾塢事件</caption><thead><tr><th>日期</th><th>船舶</th><th>事件</th><th>附註</th></tr></thead><tbody>{rows.map((event, index) => <tr key={`${event.ship_id}-${event.date}-${event.type}-${index}`}><td>{event.date}</td><td>{ships.get(event.ship_id) ?? event.ship_id}</td><td>{event.type}</td><td>{event.notes || '—'}</td></tr>)}</tbody></table></div>
+  return <div className="table-wrap"><table><caption>歷史維護與既定乾塢事件</caption><thead><tr><th>日期</th><th>船舶</th><th>事件</th><th>附註</th></tr></thead><tbody>{rows.map((event, index) => <tr key={`${event.ship_id}-${event.date}-${event.type}-${index}`}><td>{event.date}</td><td>{ships.get(event.ship_id) ?? event.ship_id}</td><td>{maintenanceActionLabel(event.type)}</td><td>{event.notes || '—'}</td></tr>)}</tbody></table></div>
 }
 
 function FuelTicker({ fuel, paused, setPaused }: { fuel: FuelPriceResponse; paused: boolean; setPaused: (paused: boolean) => void }) {
@@ -805,7 +820,7 @@ function ToolDialog({ tool, onClose, shipId, alerts, fuel, models, onModelsChang
   return <div className="dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose() }} onKeyDown={(event) => { if (event.key === 'Escape') onClose() }}><section className={`tool-dialog ${tool === 'settings' ? 'settings-dialog' : ''}`} role="dialog" aria-modal="true" aria-labelledby="tool-title"><div className="drawer-heading"><div><span>HULLWATCH TOOL</span><h2 id="tool-title">{tool === 'inspect' ? '水下判讀' : '系統設定'}</h2></div><button onClick={onClose} aria-label="關閉" autoFocus><X /></button></div>{tool === 'inspect' && <InspectTool shipId={shipId} />}{tool === 'settings' && <SettingsTool alerts={alerts} fuel={fuel} models={models} onModelsChanged={onModelsChanged} onReportsImported={onReportsImported} />}</section></div>
 }
 
-function AdvisorPanel({ open, shipId, onClose }: { open: boolean; shipId: string; onClose: () => void }) {
+function AdvisorPanel({ open, shipId, width, minWidth, maxWidth, onResize, onClose }: { open: boolean; shipId: string; width: number; minWidth: number; maxWidth: number; onResize: (width: number) => void; onClose: () => void }) {
   const [question, setQuestion] = useState('這一季哪幾艘船該優先清洗？為什麼？')
   const [messages, setMessages] = useState<{ question: string; answer: AdvisorResponse }[]>([])
   const [busy, setBusy] = useState(false)
@@ -814,6 +829,14 @@ function AdvisorPanel({ open, shipId, onClose }: { open: boolean; shipId: string
   const closeAndRestoreFocus = () => {
     onClose()
     window.setTimeout(() => document.getElementById('advisor-trigger')?.focus())
+  }
+  const resizeWithKeyboard = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (event.key === 'ArrowLeft') onResize(width + 24)
+    else if (event.key === 'ArrowRight') onResize(width - 24)
+    else if (event.key === 'Home') onResize(minWidth)
+    else if (event.key === 'End') onResize(maxWidth)
+    else return
+    event.preventDefault()
   }
   const submit = async (event: FormEvent) => {
     event.preventDefault()
@@ -828,7 +851,30 @@ function AdvisorPanel({ open, shipId, onClose }: { open: boolean; shipId: string
       setBusy(false)
     }
   }
-  return <aside id="advisor-panel" className="advisor-panel" aria-hidden={!open} inert={!open} aria-labelledby="advisor-title"><div className="advisor-heading"><div><span>AI COPILOT</span><h2 id="advisor-title">AI 顧問</h2><small>目前船舶情境：{shipId || '全船隊'}</small></div><button onClick={closeAndRestoreFocus} aria-label="關閉 AI 顧問"><X /></button></div><div className="advisor-context"><Bot size={17} /><span>可詢問風險排序、維護建議與決策依據</span><kbd>Esc</kbd></div><div className="advisor-thread" aria-live="polite">{messages.length === 0 && <div className="advisor-welcome"><Bot size={28} /><strong>從船隊資料開始提問</strong><p>顧問回答會保留在這次瀏覽的對話中，並附上可用的資料來源。</p></div>}{messages.map((message, index) => <div className="advisor-exchange" key={`${message.question}-${index}`}><div className="advisor-question"><span>你</span><p>{message.question}</p></div><article className="advisor-answer"><span>{message.answer.mode.toUpperCase()} MODE</span><MarkdownContent content={message.answer.answer} />{message.answer.citations.length > 0 && <small>來源：{message.answer.citations.join('、')}</small>}</article></div>)}</div><form className="advisor-composer" onSubmit={submit}><label htmlFor="advisor-question">詢問船隊資料</label><textarea id="advisor-question" ref={inputRef} value={question} onChange={(event) => setQuestion(event.target.value)} rows={3} placeholder="例如：哪艘船應優先安排清洗？" /><button className="primary-action" disabled={busy || !question.trim()}>{busy ? '查詢資料中…' : '送出問題'}</button></form></aside>
+  return <aside id="advisor-panel" className="advisor-panel" aria-hidden={!open} inert={!open} aria-labelledby="advisor-title">
+    <div
+      className="advisor-resize-handle"
+      role="separator"
+      aria-label="調整 AI 顧問寬度"
+      aria-orientation="vertical"
+      aria-valuemin={minWidth}
+      aria-valuemax={maxWidth}
+      aria-valuenow={width}
+      aria-valuetext={`${width} 像素`}
+      tabIndex={0}
+      title="拖曳或使用左右方向鍵調整寬度"
+      onDoubleClick={() => onResize(440)}
+      onKeyDown={resizeWithKeyboard}
+      onPointerDown={(event) => { document.documentElement.classList.add('advisor-resizing'); event.currentTarget.setPointerCapture(event.pointerId) }}
+      onPointerMove={(event) => { if (event.currentTarget.hasPointerCapture(event.pointerId)) onResize(window.innerWidth - event.clientX) }}
+      onPointerUp={(event) => { document.documentElement.classList.remove('advisor-resizing'); if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId) }}
+      onPointerCancel={() => document.documentElement.classList.remove('advisor-resizing')}
+    />
+    <div className="advisor-heading"><div><span>AI COPILOT</span><h2 id="advisor-title">AI 顧問</h2><small>目前船舶情境：{shipId || '全船隊'}</small></div><button onClick={closeAndRestoreFocus} aria-label="關閉 AI 顧問"><X /></button></div>
+    <div className="advisor-context"><Bot size={17} /><span>可詢問風險排序、維護建議與決策依據</span><kbd>Esc</kbd></div>
+    <div className="advisor-thread" aria-live="polite">{messages.length === 0 && <div className="advisor-welcome"><Bot size={28} /><strong>從船隊資料開始提問</strong><p>顧問回答會保留在這次瀏覽的對話中，並附上可用的資料來源。</p></div>}{messages.map((message, index) => <div className="advisor-exchange" key={`${message.question}-${index}`}><div className="advisor-question"><span>你</span><p>{message.question}</p></div><article className="advisor-answer"><span>{message.answer.mode.toUpperCase()} MODE</span><MarkdownContent content={message.answer.answer} />{message.answer.citations.length > 0 && <small>來源：{message.answer.citations.join('、')}</small>}</article></div>)}</div>
+    <form className="advisor-composer" onSubmit={submit}><label htmlFor="advisor-question">詢問船隊資料</label><textarea id="advisor-question" ref={inputRef} value={question} onChange={(event) => setQuestion(event.target.value)} rows={3} placeholder="例如：哪艘船應優先安排清洗？" /><button className="primary-action" disabled={busy || !question.trim()}>{busy ? '查詢資料中…' : '送出問題'}</button></form>
+  </aside>
 }
 
 function InspectTool({ shipId }: { shipId: string }) {

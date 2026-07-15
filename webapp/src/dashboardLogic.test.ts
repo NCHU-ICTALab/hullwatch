@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { allocateEventLanes, cleaningSavings, decisionModelOptions, fleetShipMatchesFilters, fuelHistoryForGrade, layoutTrendEventMarkers, maintenanceActionLabel, speedLossMinimumForStatus } from './dashboardLogic'
+import { advisorWidthBounds, allocateEventLanes, clampAdvisorWidth, cleaningSavings, decisionModelOptions, fleetShipMatchesFilters, fuelHistoryForGrade, layoutTrendEventMarkers, maintenanceActionLabel, speedLossMinimumForStatus } from './dashboardLogic'
 import type { FuelPriceResponse, ModelInfo } from './types'
 
 describe('dashboard behavior', () => {
@@ -31,8 +31,10 @@ describe('dashboard behavior', () => {
     ], 1)
 
     expect(result.map(({ lane }) => lane)).toEqual([0, 1, 2])
-    expect(new Set(result.map(({ y }) => y)).size).toBe(3)
-    expect(result.map(({ abbreviation }) => abbreviation)).toEqual(['UWC', 'PP', 'UWI'])
+    expect(result.map(({ offsetY }) => offsetY)).toEqual([0, -32, -64])
+    expect(result.every(({ y }) => y === 1)).toBe(true)
+    expect(result.map(({ markerLabel }) => markerLabel)).toEqual(['1', '2', '3'])
+    expect(result.map(({ actionLabel }) => actionLabel)).toEqual(['船殼清洗', '螺旋槳拋光', '水下檢查（僅拍照，無物理介入）'])
   })
 
   it('allows every usable forecast model to be selected as the decision model', () => {
@@ -74,14 +76,22 @@ describe('dashboard behavior', () => {
     expect(fleetShipMatchesFilters(forecastWatch, 'watch', 6.5, 6)).toBe(false)
   })
 
-  it('presents source maintenance action codes with their Chinese names', () => {
-    expect(maintenanceActionLabel('PP')).toBe('螺旋槳拋光（PP）')
-    expect(maintenanceActionLabel('UWI+PP')).toBe('水下檢查 + 螺旋槳拋光（UWI+PP）')
-    expect(maintenanceActionLabel('UWC')).toBe('船殼清洗（UWC）')
-    expect(maintenanceActionLabel('UWC+PP')).toBe('船殼清洗 + 螺旋槳拋光（UWC+PP）')
-    expect(maintenanceActionLabel('DD')).toBe('進塢（全面塗裝 + 機械保養）（DD）')
-    expect(maintenanceActionLabel('UWI')).toBe('水下檢查（僅拍照，無物理介入）（UWI）')
+  it('presents source maintenance action codes as Chinese-only UI names', () => {
+    expect(maintenanceActionLabel('PP')).toBe('螺旋槳拋光')
+    expect(maintenanceActionLabel('UWI+PP')).toBe('水下檢查 + 螺旋槳拋光')
+    expect(maintenanceActionLabel('UWC')).toBe('船殼清洗')
+    expect(maintenanceActionLabel('UWC+PP')).toBe('船殼清洗 + 螺旋槳拋光')
+    expect(maintenanceActionLabel('DD')).toBe('進塢（全面塗裝 + 機械保養）')
+    expect(maintenanceActionLabel('UWI')).toBe('水下檢查（僅拍照，無物理介入）')
     expect(maintenanceActionLabel('unknown')).toBe('unknown')
     expect(maintenanceActionLabel()).toBe('—')
+  })
+
+  it('keeps the resizable advisor usable without consuming the dashboard', () => {
+    expect(advisorWidthBounds(1600)).toEqual({ min: 360, max: 720 })
+    expect(advisorWidthBounds(1024)).toEqual({ min: 300, max: 480 })
+    expect(advisorWidthBounds(600)).toEqual({ min: 600, max: 600 })
+    expect(clampAdvisorWidth(900, 1600)).toBe(720)
+    expect(clampAdvisorWidth(200, 1024)).toBe(300)
   })
 })
