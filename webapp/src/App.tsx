@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
+import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import {
   AlertTriangle,
   Bell,
@@ -21,7 +21,7 @@ import {
 import type { EChartsOption } from 'echarts'
 import { api } from './api'
 import { EChart } from './components/EChart'
-import { allocateEventLanes, cleaningSavings, decisionModelOptions, EVENT_LANE_HEIGHT, fuelHistoryForGrade, layoutTrendEventMarkers } from './dashboardLogic'
+import { allocateEventLanes, cleaningSavings, decisionModelOptions, EVENT_LANE_HEIGHT, fuelHistoryForGrade, layoutTrendEventMarkers, speedLossMinimumForStatus } from './dashboardLogic'
 import type {
   AdvisorResponse,
   AlertsResponse,
@@ -385,6 +385,10 @@ function FleetView({ fleet, fuel, tickerPaused, setTickerPaused, ships, statusFi
   setSlMinimum: (value: number) => void
   onSelect: (shipId: string) => void
 }) {
+  const changeStatus = (status: 'all' | Status) => {
+    setStatusFilter(status)
+    setSlMinimum(speedLossMinimumForStatus(fleet.ships, status))
+  }
   return (
     <section className="page fleet-page" aria-labelledby="fleet-title">
       <PageHeading eyebrow="01 / FLEET HEALTH" title="船隊健康總覽" subtitle={`${fleet.stats.n_ships} 艘船 · 依 Speed Loss 風險與清洗急迫度排序`} />
@@ -397,7 +401,7 @@ function FleetView({ fleet, fuel, tickerPaused, setTickerPaused, ships, statusFi
         <Metric label="每月超額碳排" value={number.format(fleet.stats.monthly_excess_co2_tons)} unit="tCO₂" />
       </div>
       <div className="filter-bar panel">
-        <fieldset><legend>狀態篩選</legend>{(['all', 'action', 'watch', 'ok'] as const).map((status) => <button key={status} className={statusFilter === status ? 'selected' : ''} onClick={() => setStatusFilter(status)}>{status === 'all' ? '全部' : `${statusMeta[status].symbol} ${statusMeta[status].label}`}</button>)}</fieldset>
+        <fieldset><legend>狀態篩選</legend>{(['all', 'action', 'watch', 'ok'] as const).map((status) => <button key={status} className={statusFilter === status ? 'selected' : ''} onClick={() => changeStatus(status)}>{status === 'all' ? '全部' : `${statusMeta[status].symbol} ${statusMeta[status].label}`}</button>)}</fieldset>
         <DualInput label="Speed Loss 下限" value={slMinimum} min={0} max={15} step={0.5} unit="%" onChange={setSlMinimum} />
         <span className="result-count" aria-live="polite">顯示 {ships.length} / {fleet.stats.n_ships} 艘</span>
       </div>
@@ -714,7 +718,7 @@ function NoonReportUpload({ onUploaded }: { onUploaded: () => Promise<void> | vo
       setBusy(false)
     }
   }
-  return <section className="settings-section"><div className="settings-section-heading"><div><span>CSV IMPORT</span><h3>正午日報批次匯入</h3></div><button className="secondary-action" type="button" onClick={downloadNoonReportTemplate}>下載標準 CSV 範本</button></div><p className="sr-only" aria-live="polite">{downloadMessage}</p><p>每列代表一艘船的一天；正確列會匯入，錯誤列會保留原因。同船同日資料會更新覆蓋。</p><form className="settings-upload" onSubmit={submit}><label className="upload-zone"><Upload size={30} /><strong>選擇標準正午日報 CSV</strong><span>最大 5MB</span><input name="file" type="file" accept=".csv,text/csv" required /></label><button className="primary-action" disabled={busy}>{busy ? '驗證與匯入中…' : '驗證並匯入'}</button></form>{message && <p className="import-message" aria-live="polite">{message}</p>}{result && result.errors.length > 0 && <div className="import-errors"><strong>需要修正的資料列</strong><ul>{result.errors.map((error) => <li key={`${error.row}-${error.message}`}>第 {error.row} 列：{error.message}</li>)}</ul></div>}</section>
+  return <section className="settings-section"><div className="settings-section-heading"><div><span>CSV IMPORT</span><h3>正午日報批次匯入</h3></div><button className="secondary-action" type="button" onClick={downloadNoonReportTemplate}>下載標準 CSV 範本</button></div><p className="sr-only" aria-live="polite">{downloadMessage}</p><p>每列代表一艘船的一天；正確列會匯入，錯誤列會保留原因。同船同日資料會更新覆蓋。</p><form className="settings-upload" onSubmit={submit}><UploadZone name="file" accept=".csv,text/csv" icon={<Upload size={30} />} title="標準正午日報 CSV" hint="最大 5MB" /><button className="primary-action" disabled={busy}>{busy ? '驗證與匯入中…' : '驗證並匯入'}</button></form>{message && <p className="import-message" aria-live="polite">{message}</p>}{result && result.errors.length > 0 && <div className="import-errors"><strong>需要修正的資料列</strong><ul>{result.errors.map((error) => <li key={`${error.row}-${error.message}`}>第 {error.row} 列：{error.message}</li>)}</ul></div>}</section>
 }
 
 function TrendTable({ detail, forecasts, visibleModels }: { detail: ShipDetail; forecasts: Record<string, ForecastResponse>; visibleModels: string[] }) {
@@ -783,7 +787,12 @@ function InspectTool({ shipId }: { shipId: string }) {
   const [result, setResult] = useState<Record<string, unknown> | null>(null)
   const [busy, setBusy] = useState(false)
   const submit = async (event: FormEvent<HTMLFormElement>) => { event.preventDefault(); const file = new FormData(event.currentTarget).get('image'); if (!(file instanceof File) || file.size === 0) return; setBusy(true); try { setResult(await api.inspect(shipId, file)) } finally { setBusy(false) } }
-  return <form className="tool-body" onSubmit={submit}><label className="upload-zone"><ImageUp size={36} /><strong>上傳船殼水下照片</strong><span>JPEG / PNG，最大 8MB</span><input name="image" type="file" accept="image/jpeg,image/png" required /></label><button className="primary-action" disabled={busy}>{busy ? 'Bedrock 判讀中…' : '開始判讀'}</button>{result && <pre className="inspection-result">{JSON.stringify(result, null, 2)}</pre>}</form>
+  return <form className="tool-body" onSubmit={submit}><UploadZone name="image" accept="image/jpeg,image/png" icon={<ImageUp size={36} />} title="船殼水下照片" hint="JPEG / PNG，最大 8MB" /><button className="primary-action" disabled={busy}>{busy ? 'Bedrock 判讀中…' : '開始判讀'}</button>{result && <pre className="inspection-result">{JSON.stringify(result, null, 2)}</pre>}</form>
+}
+
+function UploadZone({ name, accept, icon, title, hint }: { name: string; accept: string; icon: ReactNode; title: string; hint: string }) {
+  const [fileName, setFileName] = useState('尚未選擇檔案')
+  return <label className="upload-zone">{icon}<strong>{title}</strong><span>{hint}</span><span className="file-picker-action" aria-hidden="true">選擇檔案</span><span className="file-name" aria-live="polite">{fileName}</span><input name={name} type="file" accept={accept} required onChange={(event) => setFileName(event.target.files?.[0]?.name ?? '尚未選擇檔案')} /></label>
 }
 
 function SettingsTool({ alerts, fuel, models, onModelsChanged, onReportsImported }: { alerts: AlertsResponse | null; fuel: FuelPriceResponse | null; models: ModelInfo[]; onModelsChanged: () => Promise<void>; onReportsImported: () => Promise<void> }) {
@@ -841,7 +850,7 @@ function ModelManager({ models, onChanged }: { models: ModelInfo[]; onChanged: (
   }
   const activate = async (id: string) => { setBusy(true); try { await api.activateModel(id); await onChanged(); setMessage(`已啟用 ${id}`) } catch (reason) { setMessage(reason instanceof Error ? reason.message : '啟用失敗') } finally { setBusy(false) } }
   const restore = async () => { setBusy(true); try { await api.restoreModel(); await onChanged(); setMessage('已回復內建線性結垢趨勢模型。') } finally { setBusy(false) } }
-  return <section className="settings-section"><div className="settings-section-heading"><div><span>MODEL REGISTRY</span><h3>Speed Loss 趨勢模型</h3></div><button className="secondary-action" onClick={restore} disabled={busy}>回復內建模型</button></div><div className="model-registry">{models.map((model) => <article key={model.id} className={model.is_primary ? 'active' : ''}><div><strong>{model.name}</strong><small>{model.id} · {model.version ?? 'builtin'} · {model.model_format ?? 'builtin'}</small></div><span>{model.is_primary ? '使用中' : model.status ?? '可用'}</span>{model.validation && <p>候選 MAE {model.validation.candidate_mae}／現行 {model.validation.current_model_mae} · {model.validation.rows} 筆</p>}{model.status === 'validated' && !model.is_primary && <button onClick={() => activate(model.id)} disabled={busy}>啟用</button>}</article>)}</div><form className="model-upload" onSubmit={submit}><label>模型 manifest<textarea rows={13} value={manifest} onChange={(event) => setManifest(event.target.value)} spellCheck={false} /></label><label className="upload-zone"><Upload size={30} /><strong>選擇 XGBoost JSON 模型</strong><span>第一版只接受資料型模型檔；不接受 pickle/joblib</span><input name="artifact" type="file" accept=".json,application/json" required /></label><button className="primary-action" disabled={busy}>{busy ? '檢查與驗證中…' : '上傳為候選模型'}</button></form>{message && <p className="import-message" aria-live="polite">{message}</p>}</section>
+  return <section className="settings-section"><div className="settings-section-heading"><div><span>MODEL REGISTRY</span><h3>Speed Loss 趨勢模型</h3></div><button className="secondary-action" onClick={restore} disabled={busy}>回復內建模型</button></div><div className="model-registry">{models.map((model) => <article key={model.id} className={model.is_primary ? 'active' : ''}><div><strong>{model.name}</strong><small>{model.id} · {model.version ?? 'builtin'} · {model.model_format ?? 'builtin'}</small></div><span>{model.is_primary ? '使用中' : model.status ?? '可用'}</span>{model.validation && <p>候選 MAE {model.validation.candidate_mae}／現行 {model.validation.current_model_mae} · {model.validation.rows} 筆</p>}{model.status === 'validated' && !model.is_primary && <button onClick={() => activate(model.id)} disabled={busy}>啟用</button>}</article>)}</div><form className="model-upload" onSubmit={submit}><label>模型 manifest<textarea rows={13} value={manifest} onChange={(event) => setManifest(event.target.value)} spellCheck={false} /></label><UploadZone name="artifact" accept=".json,application/json" icon={<Upload size={30} />} title="XGBoost JSON 模型" hint="第一版只接受資料型模型檔；不接受 pickle/joblib" /><button className="primary-action" disabled={busy}>{busy ? '檢查與驗證中…' : '上傳為候選模型'}</button></form>{message && <p className="import-message" aria-live="polite">{message}</p>}</section>
 }
 
 function LoadingScreen() { return <div className="loading-screen"><span className="brand-mark"><Ship /></span><strong>HULLWATCH</strong><p>載入船隊效能資料…</p></div> }

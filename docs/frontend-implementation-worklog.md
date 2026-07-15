@@ -139,3 +139,10 @@
 - 真資料正式匯出結果：baseline 1 個模型；fuel ensemble 10 個成員＋1 個低速 fallback；壓縮交接包約 3.2MB，位於 gitignored `data/sagemaker-p0.tar.gz`。
 - P0 模型目標與 SageMaker 推論契約記錄於 `docs/p0-sagemaker-handoff.md`。
 - 最終驗證：Python **70 passed**；前端 Vitest **5 passed**；`npm run lint` 與 production build 通過。既有 Starlette/httpx deprecation 與 Vite bundle code-splitting warning 仍在。
+
+## 2026-07-15 第六批：Fleet 篩選同步與上傳控制修復
+
+- 點選 Fleet 狀態篩選時，Speed Loss 下限同步到該狀態船舶的最低值，向下對齊 0.5% 滑桿刻度；「全部」回到 0%。計算以完整船隊為準，避免篩選回饋導致資料消失。
+- 正午日報、模型 JSON 與水下照片三個入口統一使用共用 UploadZone。原生 file input 保留鍵盤與螢幕閱讀器語意，但改為覆蓋式控制，不再以 intrinsic width 撐開 grid。
+- 上傳區新增一致的選擇檔案按鈕視覺、目前檔名、ellipsis 截斷、`focus-within` 可見焦點，以及 grid 子項 `min-width: 0`。
+- 驗證：前端 Vitest **6 passed**；`npm run lint` 與 production build 通過。in-app Browser 仍無可用 backend，實際視窗寬度下的視覺點擊待使用者本機確認。

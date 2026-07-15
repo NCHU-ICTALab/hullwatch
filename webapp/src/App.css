@@ -288,9 +288,12 @@ th { background: var(--hw-panel-2); color: var(--hw-muted); font-size: 9px; lett
 .advisor-answer > span { color: var(--hw-teal); font-family: var(--hw-mono); font-size: 9px; font-weight: 800; }
 .advisor-answer p { white-space: pre-wrap; line-height: 1.65; }
 .advisor-answer small { color: var(--hw-muted); }
-.upload-zone { min-height: 190px; display: grid; place-items: center; align-content: center; gap: 7px; border: 2px dashed var(--hw-line); background: var(--hw-bg); cursor: pointer; }
+.upload-zone { position: relative; width: 100%; min-width: 0; min-height: 190px; display: grid; place-items: center; align-content: center; gap: 7px; padding: 22px 16px; overflow: hidden; border: 2px dashed var(--hw-line); background: var(--hw-bg); cursor: pointer; text-align: center; }
+.upload-zone:focus-within { outline: 3px solid var(--hw-focus); outline-offset: 3px; }
 .upload-zone span { color: var(--hw-muted); font-size: 11px; }
-.upload-zone input { margin-top: 8px; }
+.upload-zone input[type="file"] { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer; }
+.upload-zone .file-picker-action { margin-top: 6px; padding: 7px 12px; border: 1px solid var(--hw-teal); background: var(--hw-panel); color: var(--hw-teal); font-size: 13px; font-weight: 800; }
+.upload-zone .file-name { width: 100%; max-width: 100%; overflow: hidden; color: var(--hw-ink); font-family: var(--hw-mono); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
 .inspection-result { max-height: 300px; padding: 12px; overflow: auto; background: var(--hw-bg); border: 1px solid var(--hw-line); font-size: 10px; white-space: pre-wrap; }
 .settings-list article { display: flex; justify-content: space-between; gap: 20px; padding: 12px; border-bottom: 1px solid var(--hw-line-2); }
 .settings-list span { color: var(--hw-muted); text-align: right; }
@@ -314,6 +317,7 @@ th { background: var(--hw-panel-2); color: var(--hw-muted); font-size: 9px; lett
 .model-registry small, .model-registry p { display: block; margin: 3px 0 0; color: var(--hw-muted); }
 .model-registry p { grid-column: 1 / -1; }
 .model-upload { display: grid; grid-template-columns: 1.15fr .85fr; gap: 12px; padding-top: 16px; border-top: 1px solid var(--hw-line-2); }
+.model-upload > * { min-width: 0; }
 .model-upload > label:first-child { display: grid; gap: 7px; color: var(--hw-muted); font-weight: 800; }
 .model-upload textarea { width: 100%; padding: 10px; resize: vertical; background: var(--hw-bg); border: 1px solid var(--hw-line); color: var(--hw-ink); font-family: var(--hw-mono); font-size: 12px; }
 .model-upload .primary-action { grid-column: 1 / -1; }

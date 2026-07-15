@@ -1,4 +1,4 @@
-import type { FuelPriceResponse, ModelInfo, ScheduleResponse, ShipDetail } from './types'
+import type { FleetShip, FuelPriceResponse, ModelInfo, ScheduleResponse, ShipDetail, Status } from './types'
 
 export const EVENT_LANE_HEIGHT = 24
 const EVENT_LABEL_CLEARANCE_DAYS = 14
@@ -24,6 +24,19 @@ export function fuelHistoryForGrade(fuel: FuelPriceResponse, grade: string) {
 
 export function decisionModelOptions(models: ModelInfo[]) {
   return models.filter((model) => model.status !== 'candidate' && model.status !== 'rejected')
+}
+
+export function speedLossMinimumForStatus(
+  ships: readonly Pick<FleetShip, 'status' | 'speed_loss_pct'>[],
+  status: 'all' | Status,
+) {
+  if (status === 'all') return 0
+  const values = ships
+    .filter((ship) => ship.status === status)
+    .map((ship) => ship.speed_loss_pct)
+    .filter(Number.isFinite)
+  if (values.length === 0) return 0
+  return Math.min(15, Math.max(0, Math.floor(Math.min(...values) * 2) / 2))
 }
 
 export function layoutTrendEventMarkers(events: ShipDetail['events'], baseY: number) {

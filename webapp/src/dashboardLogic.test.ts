@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { allocateEventLanes, cleaningSavings, decisionModelOptions, fuelHistoryForGrade, layoutTrendEventMarkers } from './dashboardLogic'
+import { allocateEventLanes, cleaningSavings, decisionModelOptions, fuelHistoryForGrade, layoutTrendEventMarkers, speedLossMinimumForStatus } from './dashboardLogic'
 import type { FuelPriceResponse, ModelInfo } from './types'
 
 describe('dashboard behavior', () => {
@@ -55,5 +55,20 @@ describe('dashboard behavior', () => {
     ])
 
     expect(options.map(({ id }) => id)).toEqual(['linear-growth', 'physics-scenario', 'persistence'])
+  })
+
+  it('synchronizes the Speed Loss floor with the selected fleet status', () => {
+    const ships = [
+      { status: 'action', speed_loss_pct: 11.2 },
+      { status: 'action', speed_loss_pct: 13.8 },
+      { status: 'watch', speed_loss_pct: 7.8 },
+      { status: 'watch', speed_loss_pct: 8.4 },
+      { status: 'ok', speed_loss_pct: 2.2 },
+    ] as const
+
+    expect(speedLossMinimumForStatus(ships, 'all')).toBe(0)
+    expect(speedLossMinimumForStatus(ships, 'action')).toBe(11)
+    expect(speedLossMinimumForStatus(ships, 'watch')).toBe(7.5)
+    expect(speedLossMinimumForStatus(ships, 'ok')).toBe(2)
   })
 })
