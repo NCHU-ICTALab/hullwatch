@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { advisorWidthBounds, allocateEventLanes, clampAdvisorWidth, cleaningSavings, decisionModelOptions, fleetShipMatchesFilters, fuelHistoryForGrade, GANTT_EVENT_LABEL_CLEARANCE_DAYS, layoutTrendEventMarkers, maintenanceActionLabel, maintenanceActionPresentation, maintenanceTimelineMarkerLabel, scheduleForSelectedShip, speedLossMinimumForStatus } from './dashboardLogic'
+import { advisorWidthBounds, ALERT_AUTO_OPEN_ON_ARRIVAL, allocateEventLanes, clampAdvisorWidth, cleaningSavings, decisionModelOptions, fleetShipMatchesFilters, formatUsd, fuelHistoryForGrade, GANTT_EVENT_LABEL_CLEARANCE_DAYS, layoutTrendEventMarkers, maintenanceActionLabel, maintenanceActionPresentation, maintenanceTimelineMarkerLabel, resolveSelectedShipId, scheduleForSelectedShip, speedLossMinimumForStatus } from './dashboardLogic'
 import type { FuelPriceResponse, ModelInfo, ScheduleResponse } from './types'
 
 describe('dashboard behavior', () => {
@@ -113,6 +113,26 @@ describe('dashboard behavior', () => {
     expect(selected.recommendations.map(({ ship_id }) => ship_id)).toEqual(['S2'])
     expect(selected.dry_docks.map(({ ship_id }) => ship_id)).toEqual(['S2'])
     expect(selected.maintenance_events.map(({ ship_id }) => ship_id)).toEqual(['S2'])
+  })
+
+  it('defaults to the first fleet row while preserving a valid current selection', () => {
+    const ships = [{ ship_id: 'S3' }, { ship_id: 'S1' }, { ship_id: 'S2' }]
+
+    expect(resolveSelectedShipId('', ships)).toBe('S3')
+    expect(resolveSelectedShipId('S1', ships)).toBe('S1')
+    expect(resolveSelectedShipId('missing', ships)).toBe('S3')
+    expect(resolveSelectedShipId('', [])).toBe('')
+  })
+
+  it('always renders an explicit USD unit and optional price cadence', () => {
+    expect(formatUsd(25_000)).toBe('US$25,000')
+    expect(formatUsd(4_000, '日')).toBe('US$4,000／日')
+    expect(formatUsd(100_000, '月')).toBe('US$100,000／月')
+    expect(formatUsd(612.34, 'mt', 2)).toBe('US$612.34／mt')
+  })
+
+  it('keeps incoming alerts collapsed until the user opens them', () => {
+    expect(ALERT_AUTO_OPEN_ON_ARRIVAL).toBe(false)
   })
 
   it('presents source maintenance action codes as Chinese-only UI names', () => {

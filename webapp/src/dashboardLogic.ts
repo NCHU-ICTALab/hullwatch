@@ -3,6 +3,7 @@ import type { FleetShip, FuelPriceResponse, ModelInfo, ScheduleResponse, ShipDet
 export const EVENT_LANE_HEIGHT = 24
 export const TREND_EVENT_LANE_OFFSET_PX = 32
 export const GANTT_EVENT_LABEL_CLEARANCE_DAYS = 90
+export const ALERT_AUTO_OPEN_ON_ARRIVAL = false
 const EVENT_LABEL_CLEARANCE_DAYS = 14
 
 export function allocateEventLanes(events: ScheduleResponse['maintenance_events'], clearanceDays = EVENT_LABEL_CLEARANCE_DAYS) {
@@ -22,6 +23,27 @@ export function cleaningSavings(noCleanAverage: number, costs: number[]) {
 
 export function fuelHistoryForGrade(fuel: FuelPriceResponse, grade: string) {
   return fuel.history_by_grade[grade] ?? []
+}
+
+export function resolveSelectedShipId(
+  currentShipId: string,
+  ships: ReadonlyArray<Pick<FleetShip, 'ship_id'>>,
+) {
+  if (ships.some((ship) => ship.ship_id === currentShipId)) return currentShipId
+  return ships[0]?.ship_id ?? ''
+}
+
+export function formatUsd(
+  value: number,
+  unit?: '日' | '月' | '30 天' | 'mt',
+  maximumFractionDigits = 0,
+) {
+  const absolute = new Intl.NumberFormat('en-US', {
+    maximumFractionDigits,
+    minimumFractionDigits: 0,
+  }).format(Math.abs(value))
+  const sign = value < 0 ? '−' : ''
+  return `${sign}US$${absolute}${unit ? `／${unit}` : ''}`
 }
 
 export type MaintenanceActionKind = 'PP' | 'UWI+PP' | 'UWC' | 'UWC+PP' | 'DD' | 'UWI' | 'unknown'

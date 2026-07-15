@@ -222,3 +222,13 @@
 - 新增 Dashboard Wiki generator，從與前端相同 API 擷取資料並產生 18 頁：船隊、排程、油價／模型／警報，以及 15 艘單船 KPI、歸因、事件、30 日誌、預測與 ROI；保留完整 JSON 附錄、`captured_at` 與資料 as-of，排除通知目的地與秘密。
 - AI 客服 10 題情境 hit 測試與對話框建議提問依使用者決策保留後續，本批先完成知識與可重建快照。
 - 完整驗證：Vitest **22 passed**、oxlint 0 warnings／0 errors、TypeScript + Vite production build 通過；整合遠端通知提交後 Python **79 passed**（1 個既有 Starlette deprecation warning）。private Wiki **10 tests passed**，validator 通過 **34 indexed pages**。Vite 既有大 chunk warning仍在；in-app Browser 無可用 backend，品牌 icon 實際裁切與三 viewport 保留本機人工視覺複驗。
+
+## 2026-07-15 第十五批：甘特簡化、預設船舶、金額量綱與品牌資產同步
+
+- 先用 server-render 回歸測試重現共享甘特在單船仍顯示排序、固定 150% 縮放以及前段／回到今天／後段按鈕的問題。修正後兩頁時間尺度固定 100%；總覽多船仍保留當次排序，決策單船透過明確 `showSorting={false}` 不顯示排序，兩頁都移除縮放與捲動導覽。
+- Fleet API 載入後以回傳陣列第一列作預設船舶；既有且仍有效的選擇會保留，資料重建後若船舶不存在才回到新第一列。使用者第一次進站即可直接開啟診斷與決策。
+- 警報通知匣改為純使用者觸發：初始保持收合，移除新 critical alert 自動展開 effect；未讀數、點擊開啟、Esc 關閉與點警報進單船仍保留。
+- 原始 Oi! raster 檔本身完整，loading 缺角來自放大圖片與負位移超出 64px crop。改用幾何可完整容納圖示的 110px／`left -23px`／`top -9px`，Header 同步留出邊界；沒有生成式重繪品牌圖形。相同來源檔同步至 private `hullwatch-data/data/assets/branding/oi-hullwatch-icon.png` 並納入 checksum manifest。
+- 建立共用 `formatUsd`，Fleet、單船診斷、延遲成本、ROI、建議詳情、甘特、資料表、油價卡、圖表 tooltip／座標軸與 ticker 全部顯示 `US$`，並依情境補 `／日`、`／月`、`／30 天` 或 `／mt`。
+- 油價真實刷新語意確認：前端目前只在頁面載入時呼叫一次 `/api/fuel-prices`；後端收到請求時，若 cache 未滿 6 小時直接回 cached，滿 6 小時才嘗試 Ship & Bunker → USDA → Yahoo proxy，來源或快取超過 24 小時標 stale。它不是背景即時串流；開著頁面不會自動每 6 小時 polling，需重新載入或再次觸發 API 請求。
+- 驗證：Vitest **28 passed**、oxlint 0 warnings／0 errors、TypeScript + Vite production build 通過；整合遠端最新通知功能後 Python **82 passed**（1 個既有 Starlette deprecation warning）；private Wiki **10 tests passed**、34 pages validator 綠、39 shared files manifest 綠。品牌 PNG 依 private repo 規範改由 Git LFS 追蹤。Vite 既有大 chunk warning仍在；in-app Browser backend 仍為空，loading icon 保留本機人工目視複驗。

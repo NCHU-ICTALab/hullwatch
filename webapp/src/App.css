@@ -50,7 +50,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .brand { display: flex; align-items: center; padding: 0 20px; border: 0; border-right: 2px solid var(--hw-line); background: transparent; cursor: pointer; text-align: left; }
 .brand-identity { min-width: 0; display: flex; align-items: center; gap: 10px; }
 .brand-icon-crop { position: relative; width: 38px; height: 38px; flex: 0 0 38px; overflow: hidden; border-radius: 9px; background: white; }
-.brand-icon-crop img { position: absolute; width: 72px; max-width: none; height: 72px; left: -17px; top: -10px; }
+.brand-icon-crop img { position: absolute; width: 65px; max-width: none; height: 65px; left: -14px; top: -6px; }
 .brand-wordmark { min-width: 0; display: block; }
 .brand strong { display: block; letter-spacing: .035em; font-size: 16px; white-space: nowrap; }
 .brand small { display: block; color: var(--hw-muted); font-size: 9px; letter-spacing: .06em; white-space: nowrap; }
@@ -230,9 +230,7 @@ th { background: var(--hw-panel-2); color: var(--hw-muted); font-size: 9px; lett
 .schedule-panel { margin-bottom: 12px; }
 .gantt-controls { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 14px; border-bottom: 1px solid var(--hw-line-2); background: var(--hw-panel-2); }
 .gantt-controls label { display: flex; align-items: center; gap: 8px; color: var(--hw-muted); font-size: 14px; font-weight: 750; }
-.gantt-controls select, .gantt-controls button { min-height: 36px; padding: 6px 10px; border: 1px solid var(--hw-line); background: var(--hw-panel); color: var(--hw-ink); }
-.gantt-controls > div { display: flex; gap: 6px; }
-.gantt-controls button { cursor: pointer; }
+.gantt-controls select { min-height: 36px; padding: 6px 10px; border: 1px solid var(--hw-line); background: var(--hw-panel); color: var(--hw-ink); }
 .gantt-viewport { max-width: 100%; overflow-x: auto; scrollbar-gutter: stable; }
 .gantt { min-width: 920px; padding: 8px 0; }
 .gantt-axis { display: grid; grid-template-columns: repeat(5, 1fr); margin: 0 164px 0 201px; color: var(--hw-muted); font-family: var(--hw-mono); font-size: 8px; }
@@ -434,7 +432,7 @@ th, .schedule-detail span { font-size: 12px; }
 .loading-screen { min-height: 100vh; display: grid; place-items: center; align-content: center; gap: 10px; background: var(--hw-bg); }
 .loading-screen .brand-identity { flex-direction: column; gap: 12px; text-align: center; }
 .loading-screen .brand-icon-crop { width: 64px; height: 64px; border-radius: 15px; }
-.loading-screen .brand-icon-crop img { width: 121px; height: 121px; left: -29px; top: -17px; }
+.loading-screen .brand-icon-crop img { width: 110px; height: 110px; left: -23px; top: -9px; }
 .loading-screen strong { font-size: 24px; letter-spacing: .04em; }
 .loading-screen small { display: block; margin-top: 3px; color: var(--hw-muted); }
 .loading-screen p { color: var(--hw-muted); }
@@ -517,8 +515,6 @@ th, .schedule-detail span { font-size: 12px; }
   .header-tools > * { flex: 1 1 auto; }
   .advisor-trigger { justify-content: center; }
   .panel-heading { align-items: flex-start; flex-direction: column; }
-  .gantt-controls > div { width: 100%; overflow-x: auto; }
-  .gantt-controls button { white-space: nowrap; }
 }
 
 /* Mobile: the advisor becomes its own full-width screen instead of overlapping content. */
