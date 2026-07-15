@@ -255,6 +255,9 @@ docker run --rm -p 8000:8000 \
 | 變數 | 用途 | 預設值 |
 | --- | --- | --- |
 | `HW_DATA_DIR` | 資料與 artifacts 根目錄 | `<repo>/data` |
+| `HW_THRESHOLD` | Speed Loss 立即處置／清洗門檻 | `10` |
+| `HW_WATCH_THRESHOLD` | Speed Loss 固定密切留意門檻 | `5` |
+| `HW_WATCH_WINDOW` | 預估幾天內達清洗門檻也列入密切留意 | `60` |
 | `HW_LLM_PROVIDER` | AI 顧問模式：`stub` 或 `bedrock` | `stub` |
 | `HW_BEDROCK_MODEL` | Bedrock 模型 ID | Claude Sonnet 預設模型 |
 | `HW_BEDROCK_REGION` | Bedrock AWS Region | `us-east-1` |

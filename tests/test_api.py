@@ -42,6 +42,9 @@ def test_fleet(client):
     assert r.status_code == 200
     body = r.json()
     assert body["stats"]["n_ships"] == 4
+    assert body["stats"]["threshold_pct"] == config.CLEANING_THRESHOLD_PCT
+    assert body["stats"]["watch_threshold_pct"] == config.WATCH_THRESHOLD_PCT
+    assert body["stats"]["watch_window_days"] == config.WATCH_WINDOW_DAYS
     ship = body["ships"][0]
     for key in ["ship_id", "speed_loss_pct", "fouling_level", "status",
                 "days_since_clean", "excess_cost_per_day", "spark"]:

@@ -21,7 +21,7 @@ import {
 import type { EChartsOption } from 'echarts'
 import { api } from './api'
 import { EChart } from './components/EChart'
-import { allocateEventLanes, cleaningSavings, decisionModelOptions, EVENT_LANE_HEIGHT, fuelHistoryForGrade, layoutTrendEventMarkers, speedLossMinimumForStatus } from './dashboardLogic'
+import { allocateEventLanes, cleaningSavings, decisionModelOptions, EVENT_LANE_HEIGHT, fleetShipMatchesFilters, fuelHistoryForGrade, layoutTrendEventMarkers, speedLossMinimumForStatus } from './dashboardLogic'
 import type {
   AdvisorResponse,
   AlertsResponse,
@@ -184,7 +184,7 @@ function App() {
   }, [])
 
   const filteredShips = useMemo(() => fleet?.ships.filter((ship) => (
-    (statusFilter === 'all' || ship.status === statusFilter) && ship.speed_loss_pct >= slMinimum
+    fleetShipMatchesFilters(ship, statusFilter, slMinimum, fleet.stats.watch_threshold_pct)
   )) ?? [], [fleet, statusFilter, slMinimum])
 
   const selectShip = (shipId: string, nextView: View = 'diagnose') => {
@@ -385,10 +385,21 @@ function FleetView({ fleet, fuel, tickerPaused, setTickerPaused, ships, statusFi
   setSlMinimum: (value: number) => void
   onSelect: (shipId: string) => void
 }) {
+  const statusPolicy = { action: fleet.stats.threshold_pct, watch: fleet.stats.watch_threshold_pct }
   const changeStatus = (status: 'all' | Status) => {
     setStatusFilter(status)
-    setSlMinimum(speedLossMinimumForStatus(fleet.ships, status))
+    setSlMinimum(speedLossMinimumForStatus(status, statusPolicy))
   }
+  const statusLabel = (status: Status) => status === 'action'
+    ? `${statusMeta[status].symbol} ${statusMeta[status].label} ≥${number.format(statusPolicy.action)}%`
+    : status === 'watch'
+      ? `${statusMeta[status].symbol} ${statusMeta[status].label} ≥${number.format(statusPolicy.watch)}%*`
+      : `${statusMeta[status].symbol} ${statusMeta[status].label} <${number.format(statusPolicy.watch)}%`
+  const statusDescription = (status: Status) => status === 'action'
+    ? `Speed Loss ${number.format(statusPolicy.action)}% 以上`
+    : status === 'watch'
+      ? `Speed Loss ${number.format(statusPolicy.watch)}% 以上未達 ${number.format(statusPolicy.action)}%，或預估 ${fleet.stats.watch_window_days} 天內達清洗門檻`
+      : `Speed Loss 低於 ${number.format(statusPolicy.watch)}%，且未預估在 ${fleet.stats.watch_window_days} 天內達清洗門檻`
   return (
     <section className="page fleet-page" aria-labelledby="fleet-title">
       <PageHeading eyebrow="01 / FLEET HEALTH" title="船隊健康總覽" subtitle={`${fleet.stats.n_ships} 艘船 · 依 Speed Loss 風險與清洗急迫度排序`} />
@@ -396,14 +407,15 @@ function FleetView({ fleet, fuel, tickerPaused, setTickerPaused, ships, statusFi
       <div className="fleet-stats instrument-grid">
         <Metric label="平均 Speed Loss" value={`${number.format(fleet.stats.avg_speed_loss_pct)}%`} tone="teal" />
         <Metric label="立即處置" value={`${fleet.stats.ships_action}`} unit="艘" tone="red" />
-        <Metric label="60 天內留意" value={`${fleet.stats.ships_watch}`} unit="艘" tone="amber" />
+        <Metric label="密切留意" value={`${fleet.stats.ships_watch}`} unit="艘" tone="amber" />
         <Metric label="每月超額成本" value={money.format(fleet.stats.monthly_excess_cost_usd)} tone="red" />
         <Metric label="每月超額碳排" value={number.format(fleet.stats.monthly_excess_co2_tons)} unit="tCO₂" />
       </div>
       <div className="filter-bar panel">
-        <fieldset><legend>狀態篩選</legend>{(['all', 'action', 'watch', 'ok'] as const).map((status) => <button key={status} className={statusFilter === status ? 'selected' : ''} onClick={() => changeStatus(status)}>{status === 'all' ? '全部' : `${statusMeta[status].symbol} ${statusMeta[status].label}`}</button>)}</fieldset>
+        <fieldset aria-describedby="fleet-status-policy"><legend>狀態篩選</legend>{(['all', 'action', 'watch', 'ok'] as const).map((status) => <button key={status} className={statusFilter === status ? 'selected' : ''} title={status === 'all' ? '顯示所有營運狀態' : statusDescription(status)} onClick={() => changeStatus(status)}>{status === 'all' ? '全部' : statusLabel(status)}</button>)}</fieldset>
         <DualInput label="Speed Loss 下限" value={slMinimum} min={0} max={15} step={0.5} unit="%" onChange={setSlMinimum} />
         <span className="result-count" aria-live="polite">顯示 {ships.length} / {fleet.stats.n_ships} 艘</span>
+        <small className="status-policy-note" id="fleet-status-policy">* 以平滑後 Speed Loss 分級；未達 {number.format(statusPolicy.watch)}% 但預估 {fleet.stats.watch_window_days} 天內達 {number.format(statusPolicy.action)}% 者也列入密切留意。</small>
       </div>
       <div className="ship-grid">
         {ships.map((ship) => <ShipCard key={ship.ship_id} ship={ship} onSelect={onSelect} />)}

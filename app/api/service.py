@@ -24,9 +24,12 @@ FORECAST_WEEKS = 16
 HISTORY_WEEKS = 78  # 圖表顯示最近 18 個月
 
 
-def _status(sl: float, days_to_thresh: int | None) -> str:
+def classify_operational_status(sl: float, days_to_thresh: int | None) -> str:
+    """依固定 Speed Loss 門檻與達清洗門檻預測判斷營運狀態。"""
     if sl >= config.CLEANING_THRESHOLD_PCT or days_to_thresh == 0:
         return "action"
+    if sl >= config.WATCH_THRESHOLD_PCT:
+        return "watch"
     if days_to_thresh is not None and days_to_thresh <= config.WATCH_WINDOW_DAYS:
         return "watch"
     return "ok"
@@ -303,7 +306,7 @@ class FleetService:
                 "read_only": True,
                 "speed_loss_pct": round(float(row.current_speed_loss_pct), 2),
                 "excess_cost_per_day": round(float(row.excess_cost_per_day), 2),
-                "risk_rank": 0 if _status(float(row.current_speed_loss_pct), None if pd.isna(row.days_to_threshold) else int(row.days_to_threshold)) == "action" else 1,
+                "risk_rank": 0 if classify_operational_status(float(row.current_speed_loss_pct), None if pd.isna(row.days_to_threshold) else int(row.days_to_threshold)) == "action" else 1,
             })
 
         timeline_start = anchor - pd.Timedelta(days=past_days)
@@ -584,7 +587,7 @@ class FleetService:
     def fleet_overview(self) -> dict:
         f = self.fleet.copy()
         f["status"] = [
-            _status(r.current_speed_loss_pct, None if pd.isna(r.days_to_threshold)
+            classify_operational_status(r.current_speed_loss_pct, None if pd.isna(r.days_to_threshold)
                     else int(r.days_to_threshold))
             for r in f.itertuples()
         ]
@@ -609,6 +612,8 @@ class FleetService:
                 "monthly_excess_cost_usd": round(monthly_cost, 0),
                 "monthly_excess_co2_tons": round(monthly_fuel * config.CO2_PER_TON_FUEL, 1),
                 "threshold_pct": config.CLEANING_THRESHOLD_PCT,
+                "watch_threshold_pct": config.WATCH_THRESHOLD_PCT,
+                "watch_window_days": config.WATCH_WINDOW_DAYS,
                 "n_ships": len(f),
             },
             "ships": ships,
@@ -664,7 +669,7 @@ class FleetService:
         ].sort_values(schema.EVENT_DATE)
         latest_event = all_events.iloc[-1] if len(all_events) else None
         dtt = None if pd.isna(r.days_to_threshold) else int(r.days_to_threshold)
-        status = _status(float(r.current_speed_loss_pct), dtt)
+        status = classify_operational_status(float(r.current_speed_loss_pct), dtt)
         attribution = self._attribution(ship_id)
         # 船殼 vs 螺旋槳分割（事件效果比，命題檢查表第 2 點）
         sl = float(r.current_speed_loss_pct)

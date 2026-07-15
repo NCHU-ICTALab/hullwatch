@@ -20,6 +20,8 @@ export interface FleetResponse {
     monthly_excess_cost_usd: number
     monthly_excess_co2_tons: number
     threshold_pct: number
+    watch_threshold_pct: number
+    watch_window_days: number
     n_ships: number
   }
   ships: FleetShip[]

@@ -154,3 +154,12 @@
 - `fuel-market-cache.json` 與 `notification-subscriptions.json` 保持部署本地狀態，不進資料版控；憑證與 webhook 亦明確禁止提交。
 - 主程式以 `HW_DATA_DIR=../hullwatch-data/data` 直接使用共用資料，README 與 EC2 手冊同步加入 clone、LFS、驗證、Docker bind mount 與更新流程。
 - Fleet 狀態同步滑桿的語意問題另行記錄：目前 0%／1% 是該狀態現有船舶最低值，不是分級門檻；真正規則為 10% 清洗門檻與 60 天 watch window，修正呈現方式待使用者確認。
+
+## 2026-07-15 第八批：Fleet 固定營運門檻
+
+- 營運狀態改為固定規則：正常 `<5%`；密切留意 `5%–<10%`；立即處置 `≥10%`。未達 5% 但預估 60 天內達 10% 者仍提前列為密切留意。
+- 狀態按鈕同步 Speed Loss 下限為：全部 0%、立即處置 10%、密切留意 5%、狀態正常 0%，不再依目前船舶最低值產生 0%／1% 等易誤解數字。
+- 預測型 watch 船舶在同步 5% 時保留顯示；使用者手動把下限提高到 5.5% 以上後才依新門檻縮小結果。
+- Fleet KPI 與篩選列補上可見門檻及 60 天預測例外說明；後端政策函式與前端 dashboard behavior 均新增邊界測試。
+- `/api/fleet` 回傳 action、watch 與 watch window policy，前端完全以 API 數值呈現與同步；AWS 透過環境變數覆寫時不會產生前後端門檻漂移。
+- 真實 artifacts 驗證為立即處置 3 艘、密切留意 4 艘、正常 8 艘；完整驗證 Python **71 passed**、Vitest **7 passed**，lint 與 production build 通過。
