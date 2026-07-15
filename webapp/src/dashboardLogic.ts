@@ -101,9 +101,20 @@ export function fleetShipMatchesFilters(
   speedLossMinimum: number,
   watchThreshold: number,
 ) {
-  if (statusFilter !== 'all' && ship.status !== statusFilter) return false
-  if (statusFilter === 'watch' && speedLossMinimum <= watchThreshold) return true
+  if (statusFilter === 'action' && ship.status !== 'action') return false
+  if (statusFilter === 'watch' && ship.status !== 'watch' && ship.status !== 'action') return false
+  if (statusFilter === 'ok' && ship.status !== 'ok') return false
+  if (statusFilter === 'watch' && ship.status === 'watch' && speedLossMinimum <= watchThreshold) return true
   return ship.speed_loss_pct >= speedLossMinimum
+}
+
+export function scheduleForSelectedShip(schedule: ScheduleResponse, shipId: string): ScheduleResponse {
+  return {
+    ...schedule,
+    recommendations: schedule.recommendations.filter((item) => item.ship_id === shipId),
+    dry_docks: schedule.dry_docks.filter((item) => item.ship_id === shipId),
+    maintenance_events: schedule.maintenance_events.filter((item) => item.ship_id === shipId),
+  }
 }
 
 export function layoutTrendEventMarkers(events: ShipDetail['events'], baseY: number) {

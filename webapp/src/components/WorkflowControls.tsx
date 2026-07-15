@@ -16,7 +16,7 @@ export function WorkflowSteps({ currentView, selectedShip, onNavigate }: {
   onNavigate: (view: WorkflowView) => void
 }) {
   return (
-    <nav className="workflow-steps" aria-label="HullWatch 分析步驟">
+    <nav className="workflow-steps" aria-label="Oi! Hullwatch 分析步驟">
       <ol>
         {WORKFLOW_STEPS.map((step) => {
           const locked = step.id !== 'fleet' && !selectedShip

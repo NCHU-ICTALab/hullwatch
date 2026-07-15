@@ -10,18 +10,18 @@ import {
   Moon,
   Pause,
   Play,
-  Ship,
   Sun,
   Upload,
   X,
 } from 'lucide-react'
 import type { EChartsOption } from 'echarts'
 import { api } from './api'
+import { BrandIdentity } from './components/BrandIdentity'
 import { AttributionSplitBar, DashboardToolsMenu } from './components/DiagnosisWidgets'
 import { EChart } from './components/EChart'
 import { MarkdownContent } from './components/MarkdownContent'
 import { FleetScheduleDisclosure, StatusFilterButtons, WorkflowSteps, type StatusFilterOption } from './components/WorkflowControls'
-import { advisorWidthBounds, allocateEventLanes, clampAdvisorWidth, cleaningSavings, decisionModelOptions, EVENT_LANE_HEIGHT, fleetShipMatchesFilters, fuelHistoryForGrade, GANTT_EVENT_LABEL_CLEARANCE_DAYS, layoutTrendEventMarkers, maintenanceActionLabel, maintenanceActionPresentation, speedLossMinimumForStatus } from './dashboardLogic'
+import { advisorWidthBounds, allocateEventLanes, clampAdvisorWidth, cleaningSavings, decisionModelOptions, EVENT_LANE_HEIGHT, fleetShipMatchesFilters, fuelHistoryForGrade, GANTT_EVENT_LABEL_CLEARANCE_DAYS, layoutTrendEventMarkers, maintenanceActionLabel, maintenanceActionPresentation, scheduleForSelectedShip, speedLossMinimumForStatus } from './dashboardLogic'
 import type {
   AdvisorResponse,
   AlertsResponse,
@@ -361,9 +361,8 @@ function Header({ view, setView, dark, setDark, alerts, alertOpen, onAlert, onAl
 }) {
   return (
     <header className="topbar">
-      <button className="brand" onClick={() => setView('fleet')} aria-label="HullWatch 船隊總覽">
-        <span className="brand-mark"><Ship size={22} /></span>
-        <span><strong>HULLWATCH</strong><small>FLEET PERFORMANCE</small></span>
+      <button className="brand" onClick={() => setView('fleet')} aria-label="Oi! Hullwatch 船隊總覽">
+        <BrandIdentity />
       </button>
       <WorkflowSteps currentView={view} selectedShip={selectedShip} onNavigate={setView} />
       <div className="header-tools">
@@ -427,11 +426,11 @@ function FleetView({ fleet, fuel, tickerPaused, setTickerPaused, ships, statusFi
   const statusDescription = (status: Status) => status === 'action'
     ? `Speed Loss ${number.format(statusPolicy.action)}% 以上`
     : status === 'watch'
-      ? `Speed Loss ${number.format(statusPolicy.watch)}% 以上未達 ${number.format(statusPolicy.action)}%，或預估 ${fleet.stats.watch_window_days} 天內達清洗門檻`
+      ? `Speed Loss ${number.format(statusPolicy.watch)}% 以上（包含 ${number.format(statusPolicy.action)}% 以上立即處置），或預估 ${fleet.stats.watch_window_days} 天內達清洗門檻`
       : `Speed Loss 低於 ${number.format(statusPolicy.watch)}%，且未預估在 ${fleet.stats.watch_window_days} 天內達清洗門檻`
   const statusOptions: StatusFilterOption[] = (['all', 'action', 'watch', 'ok'] as const).map((status) => ({
     id: status,
-    label: status === 'all' ? '全部' : statusLabel(status),
+    label: status === 'all' ? '全部' : status === 'watch' ? `${statusMeta.watch.symbol} 密切留意以上 ≥${number.format(statusPolicy.watch)}%*` : statusLabel(status),
     title: status === 'all' ? '顯示所有營運狀態' : statusDescription(status),
   }))
   return (
@@ -450,7 +449,7 @@ function FleetView({ fleet, fuel, tickerPaused, setTickerPaused, ships, statusFi
         <fieldset aria-describedby="fleet-status-policy"><legend>狀態篩選</legend><StatusFilterButtons selected={statusFilter} options={statusOptions} onSelect={changeStatus} /></fieldset>
         <DualInput label="Speed Loss 下限" value={slMinimum} min={0} max={15} step={0.5} unit="%" onChange={setSlMinimum} />
         <span className="result-count" aria-live="polite">顯示 {ships.length} / {fleet.stats.n_ships} 艘</span>
-        <small className="status-policy-note" id="fleet-status-policy">* 以平滑後 Speed Loss 分級；未達 {number.format(statusPolicy.watch)}% 但預估 {fleet.stats.watch_window_days} 天內達 {number.format(statusPolicy.action)}% 者也列入密切留意。</small>
+        <small className="status-policy-note" id="fleet-status-policy">* 「密切留意以上」包含立即處置；未達 {number.format(statusPolicy.watch)}% 但預估 {fleet.stats.watch_window_days} 天內達 {number.format(statusPolicy.action)}% 者也列入密切留意。</small>
       </div>
       <div className={`fleet-results ${filterPending ? 'is-pending' : ''}`} aria-busy={filterPending} style={{ minHeight: reservedResultsHeight === null ? undefined : `${reservedResultsHeight}px` }}>
         <div ref={resultsContentRef}>
@@ -596,16 +595,20 @@ function DecideView({ schedule, fuel, roi, selectedShipId, primaryModel, onSelec
   focusKey: number
 }) {
   const [selectedRecommendation, setSelectedRecommendation] = useState<ScheduleItem | null>(
-    schedule.recommendations.find((item) => item.ship_id === selectedShipId) ?? schedule.recommendations[0] ?? null,
+    schedule.recommendations.find((item) => item.ship_id === selectedShipId) ?? null,
   )
   const [cleaningDay, setCleaningDay] = useState(roi.target.best_day ?? 0)
   const [fuelGrade, setFuelGrade] = useState('VLSFO')
   useEffect(() => setCleaningDay(roi.target.best_day ?? 0), [roi.target.best_day])
   useEffect(() => {
     setSelectedRecommendation(
-      schedule.recommendations.find((item) => item.ship_id === selectedShipId) ?? schedule.recommendations[0] ?? null,
+      schedule.recommendations.find((item) => item.ship_id === selectedShipId) ?? null,
     )
   }, [schedule.recommendations, selectedShipId])
+  const selectedSchedule = useMemo(
+    () => scheduleForSelectedShip(schedule, selectedShipId),
+    [schedule, selectedShipId],
+  )
   const chartText = dark ? '#A7B8C0' : '#4A5A63'
   const chartGrid = dark ? '#2A3B43' : '#D8DFE4'
   const selectedFuelHistory = useMemo(
@@ -632,9 +635,9 @@ function DecideView({ schedule, fuel, roi, selectedShipId, primaryModel, onSelec
     <section className="page decide-page" aria-labelledby="decide-title">
       <PageHeading eyebrow="03 / MAINTENANCE DECISION" title="維護排程與經濟決策" subtitle={`未來 ${schedule.horizon_days} 天 · 唯讀系統建議 · 主模型 ${primaryModel}`} badge={`目前船舶 · ${roi.target.ship_name}（${selectedShipId}）`} />
       <section className="panel schedule-panel">
-        <div className="panel-heading"><div><span>RECOMMENDED WINDOWS</span><h2>全船隊清潔建議甘特圖</h2></div><span className="model-basis">過去 {schedule.past_days} 天 · 未來 {schedule.future_days} 天</span></div>
+        <div className="panel-heading"><div><span>SELECTED VESSEL WINDOW</span><h2>{roi.target.ship_name} 清潔建議甘特圖</h2></div><span className="model-basis">過去 {schedule.past_days} 天 · 未來 {schedule.future_days} 天</span></div>
         {selectedRecommendation && <article id="selected-decision" tabIndex={-1} className={`schedule-detail ${focusKey ? 'focus-highlight' : ''}`} aria-live="polite"><div><span>建議詳情 · 唯讀</span><strong>{selectedRecommendation.ship_name} / {maintenanceActionLabel(selectedRecommendation.action)}</strong></div><p>{selectedRecommendation.window_start}–{selectedRecommendation.window_end}，作業成本 {money.format(selectedRecommendation.action_cost_usd)}，預期回復 <b>{selectedRecommendation.speed_loss_recovery_pp.toFixed(1)}pp SL</b>、每日省 {selectedRecommendation.daily_fuel_saving_tons.toFixed(2)} 噸、每月省 {money.format(selectedRecommendation.monthly_saving_usd)}。若延後，優先遞補：{selectedRecommendation.backfill.ship_name}。{selectedRecommendation.inspection_recommended && <b> 不確定性較高，建議先安排水下檢查。</b>}</p><button onClick={() => onSelect(selectedRecommendation.ship_id, 'diagnose')}>查看單船診斷 <ChevronRight size={15} /></button></article>}
-        <ScheduleGantt schedule={schedule} selectedShipId={selectedRecommendation?.ship_id} onOpen={(item) => { setSelectedRecommendation(item); onDecisionShipChange(item.ship_id) }} onSelect={onSelect} />
+        <ScheduleGantt schedule={selectedSchedule} selectedShipId={selectedRecommendation?.ship_id} ariaLabel={`${roi.target.ship_name} 過去 ${schedule.past_days} 天至未來 ${schedule.future_days} 天清潔建議甘特圖`} onOpen={(item) => { setSelectedRecommendation(item); onDecisionShipChange(item.ship_id) }} onSelect={onSelect} />
       </section>
       <div className="decision-grid">
         <section className="panel roi-panel">
@@ -660,9 +663,10 @@ function DecideView({ schedule, fuel, roi, selectedShipId, primaryModel, onSelec
   )
 }
 
-function ScheduleGantt({ schedule, selectedShipId, onOpen, onSelect }: {
+function ScheduleGantt({ schedule, selectedShipId, ariaLabel, onOpen, onSelect }: {
   schedule: ScheduleResponse
   selectedShipId?: string
+  ariaLabel?: string
   onOpen: (item: ScheduleItem) => void
   onSelect: (shipId: string, view?: View) => void
 }) {
@@ -691,7 +695,7 @@ function ScheduleGantt({ schedule, selectedShipId, onOpen, onSelect }: {
       <div><button type="button" onClick={() => scrollGantt(-1)}>← 前段</button><button type="button" onClick={scrollToday}>回到今天</button><button type="button" onClick={() => scrollGantt(1)}>後段 →</button></div>
     </div>
     <div className="gantt-viewport" ref={ganttViewport}>
-      <div className="gantt" style={{ width: `${zoom * 100}%` }} role="region" aria-label={`全船隊過去 ${schedule.past_days} 天至未來 ${schedule.future_days} 天清潔建議甘特圖`} tabIndex={0}>
+      <div className="gantt" style={{ width: `${zoom * 100}%` }} role="region" aria-label={ariaLabel ?? `全船隊過去 ${schedule.past_days} 天至未來 ${schedule.future_days} 天清潔建議甘特圖`} tabIndex={0}>
         <div className="gantt-axis"><span>{schedule.timeline_start}</span><span>−23 天</span><span>+45 天</span><span>+113 天</span><span>{schedule.timeline_end}</span></div>
         {sortedRecommendations.map((item) => <GanttRow key={item.ship_id} item={item} timelineStart={schedule.timeline_start} totalDays={timelineDays} todayRatio={todayRatio} dryDock={schedule.dry_docks.find((event) => event.ship_id === item.ship_id)?.date} events={schedule.maintenance_events.filter((event) => event.ship_id === item.ship_id && event.type !== 'DD')} selected={selectedShipId === item.ship_id} onOpen={onOpen} />)}
       </div>
@@ -818,7 +822,7 @@ function AlertPopover({ alerts, onClose, onSelect }: { alerts: AlertsResponse | 
 
 function SettingsDialog({ open, onClose, alerts, fuel, models, onModelsChanged, onReportsImported }: { open: boolean; onClose: () => void; alerts: AlertsResponse | null; fuel: FuelPriceResponse | null; models: ModelInfo[]; onModelsChanged: () => Promise<void>; onReportsImported: () => Promise<void> }) {
   if (!open) return null
-  return <div className="dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose() }} onKeyDown={(event) => { if (event.key === 'Escape') onClose() }}><section className="tool-dialog settings-dialog" role="dialog" aria-modal="true" aria-labelledby="tool-title"><div className="drawer-heading"><div><span>HULLWATCH TOOL</span><h2 id="tool-title">系統設定</h2></div><button onClick={onClose} aria-label="關閉" autoFocus><X /></button></div><SettingsTool alerts={alerts} fuel={fuel} models={models} onModelsChanged={onModelsChanged} onReportsImported={onReportsImported} /></section></div>
+  return <div className="dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose() }} onKeyDown={(event) => { if (event.key === 'Escape') onClose() }}><section className="tool-dialog settings-dialog" role="dialog" aria-modal="true" aria-labelledby="tool-title"><div className="drawer-heading"><div><span>Oi! HULLWATCH TOOL</span><h2 id="tool-title">系統設定</h2></div><button onClick={onClose} aria-label="關閉" autoFocus><X /></button></div><SettingsTool alerts={alerts} fuel={fuel} models={models} onModelsChanged={onModelsChanged} onReportsImported={onReportsImported} /></section></div>
 }
 
 function AdvisorPanel({ open, shipId, width, minWidth, maxWidth, onResize, onClose }: { open: boolean; shipId: string; width: number; minWidth: number; maxWidth: number; onResize: (width: number) => void; onClose: () => void }) {
@@ -973,7 +977,7 @@ function ModelManager({ models, onChanged }: { models: ModelInfo[]; onChanged: (
   return <section className="settings-section"><div className="settings-section-heading"><div><span>MODEL REGISTRY</span><h3>Speed Loss 趨勢模型</h3></div><button className="secondary-action" onClick={restore} disabled={busy}>回復內建模型</button></div><div className="model-registry">{models.map((model) => <article key={model.id} className={model.is_primary ? 'active' : ''}><div><strong>{model.name}</strong><small>{model.id} · {model.version ?? 'builtin'} · {model.model_format ?? 'builtin'}</small></div><span>{model.is_primary ? '使用中' : model.status ?? '可用'}</span>{model.validation && <p>候選 MAE {model.validation.candidate_mae}／現行 {model.validation.current_model_mae} · {model.validation.rows} 筆</p>}{model.status === 'validated' && !model.is_primary && <button onClick={() => activate(model.id)} disabled={busy}>啟用</button>}</article>)}</div><form className="model-upload" onSubmit={submit}><label>模型 manifest<textarea rows={13} value={manifest} onChange={(event) => setManifest(event.target.value)} spellCheck={false} /></label><UploadZone name="artifact" accept=".json,application/json" icon={<Upload size={30} />} title="XGBoost JSON 模型" hint="第一版只接受資料型模型檔；不接受 pickle/joblib" /><button className="primary-action" disabled={busy}>{busy ? '檢查與驗證中…' : '上傳為候選模型'}</button></form>{message && <p className="import-message" aria-live="polite">{message}</p>}</section>
 }
 
-function LoadingScreen() { return <div className="loading-screen"><span className="brand-mark"><Ship /></span><strong>HULLWATCH</strong><p>載入船隊效能資料…</p></div> }
+function LoadingScreen() { return <div className="loading-screen"><BrandIdentity /><p>載入船隊效能資料…</p></div> }
 function InlineLoading({ label }: { label: string }) { return <div className="inline-loading" role="status"><span />{label}…</div> }
 
 export default App

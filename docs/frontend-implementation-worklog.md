@@ -1,4 +1,4 @@
-# HullWatch 前端重寫實作紀錄
+# Oi! Hullwatch 前端重寫實作紀錄
 
 > 開始：2026-07-14。需求來源：`frontend-redesign-spec.md`；視覺基準：
 > `../design-variants/variant-b-bridge-ops.html`（B・艦橋儀控）。
@@ -212,3 +212,13 @@
 - Fleet 狀態篩選改為語意色：立即處置紅、密切留意琥珀、正常青綠、全部中性；選取時才填滿對應底色，仍保留可見文字、圖形符號與 `aria-pressed`，顏色不是唯一資訊。
 - 新增 [`product-truth-audit.md`](product-truth-audit.md)，逐項區分觀測真實資料、模型／規則推導、情境 proxy 與 stub／合成資料；記錄成本、碳排、歸因公式、所有模型與命題覆蓋缺口。另建立 [`llm-wiki-shipping-content-proposal.md`](llm-wiki-shipping-content-proposal.md)，在使用者確認前不直接擴充 private Wiki。
 - 回歸測試新增工作流鎖定、目前船舶、預設收合與狀態篩選 a11y 覆蓋；完整驗證為 Vitest **19 passed**、oxlint 0 warnings／0 errors、TypeScript + Vite production build 通過、Python **76 passed**（1 個既有 Starlette deprecation warning）。Vite 既有大 chunk warning 仍在；in-app Browser 可用 backend 仍為空，Header 單行與三 viewport 需本機人工視覺複驗。
+
+## 2026-07-15 第十四批：單船決策、Oi! 品牌與完整 Dashboard Wiki
+
+- 修正三段資訊架構：總覽維持預設收合的全船隊甘特圖；決策頁先以 `selectedShipId` 過濾 recommendations、dry docks 與 maintenance events，只顯示總覽選定船舶。共用 `ScheduleGantt` 保留縮放、排序與 a11y 資料表，但資料 scope 不再混用。
+- Fleet「密切留意以上」改為階層篩選：顯示 watch 與 action，且仍保留預測型 watch 在同步門檻的例外；按鈕與說明明確標示包含立即處置。
+- 產品品牌更新為 **Oi! Hullwatch**，標語 **Oi! Save the Oil.**；Header 與 loading 共用 `BrandIdentity`，使用使用者提供的 `oi! icon.png` 作 CSS 無損裁切，頁面 title、meta、設定標題與 README 一併更新。
+- private LLM Wiki 新增 7 類航運客服內容：正午日報、推進與燃油、排放與法規、船體髒污、成本／碳排／歸因、模型與反事實、航運問題升級流程。研究依據記錄於 [`llm-wiki-shipping-research.md`](llm-wiki-shipping-research.md)，重要外部聲明使用 IMO、ISO、EMSA、MCA、NOAA、MAN 一手來源。
+- 新增 Dashboard Wiki generator，從與前端相同 API 擷取資料並產生 18 頁：船隊、排程、油價／模型／警報，以及 15 艘單船 KPI、歸因、事件、30 日誌、預測與 ROI；保留完整 JSON 附錄、`captured_at` 與資料 as-of，排除通知目的地與秘密。
+- AI 客服 10 題情境 hit 測試與對話框建議提問依使用者決策保留後續，本批先完成知識與可重建快照。
+- 完整驗證：Vitest **22 passed**、oxlint 0 warnings／0 errors、TypeScript + Vite production build 通過；整合遠端通知提交後 Python **79 passed**（1 個既有 Starlette deprecation warning）。private Wiki **10 tests passed**，validator 通過 **34 indexed pages**。Vite 既有大 chunk warning仍在；in-app Browser 無可用 backend，品牌 icon 實際裁切與三 viewport 保留本機人工視覺複驗。

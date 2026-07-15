@@ -1,4 +1,4 @@
-# HullWatch React Dashboard
+# Oi! Hullwatch React Dashboard
 
 Bridge Ops 介面的 React + Vite + TypeScript 實作。開發時 `/api` 會 proxy 到
 `http://127.0.0.1:8777`；production build 由 FastAPI 或 Docker 提供。

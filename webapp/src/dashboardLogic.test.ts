@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { advisorWidthBounds, allocateEventLanes, clampAdvisorWidth, cleaningSavings, decisionModelOptions, fleetShipMatchesFilters, fuelHistoryForGrade, GANTT_EVENT_LABEL_CLEARANCE_DAYS, layoutTrendEventMarkers, maintenanceActionLabel, maintenanceActionPresentation, maintenanceTimelineMarkerLabel, speedLossMinimumForStatus } from './dashboardLogic'
-import type { FuelPriceResponse, ModelInfo } from './types'
+import { advisorWidthBounds, allocateEventLanes, clampAdvisorWidth, cleaningSavings, decisionModelOptions, fleetShipMatchesFilters, fuelHistoryForGrade, GANTT_EVENT_LABEL_CLEARANCE_DAYS, layoutTrendEventMarkers, maintenanceActionLabel, maintenanceActionPresentation, maintenanceTimelineMarkerLabel, scheduleForSelectedShip, speedLossMinimumForStatus } from './dashboardLogic'
+import type { FuelPriceResponse, ModelInfo, ScheduleResponse } from './types'
 
 describe('dashboard behavior', () => {
   it('places overlapping maintenance events in separate lanes', () => {
@@ -83,6 +83,36 @@ describe('dashboard behavior', () => {
     expect(fleetShipMatchesFilters(forecastWatch, 'watch', 6, 6)).toBe(true)
     expect(fleetShipMatchesFilters(forecastWatch, 'all', 6, 6)).toBe(false)
     expect(fleetShipMatchesFilters(forecastWatch, 'watch', 6.5, 6)).toBe(false)
+  })
+
+  it('treats immediately actionable ships as part of the watch-or-worse filter', () => {
+    const actionShip = { status: 'action', speed_loss_pct: 12.4 } as const
+
+    expect(fleetShipMatchesFilters(actionShip, 'watch', 5, 5)).toBe(true)
+    expect(fleetShipMatchesFilters(actionShip, 'ok', 0, 5)).toBe(false)
+  })
+
+  it('limits the decision schedule to the ship selected from fleet overview', () => {
+    const schedule = {
+      recommendations: [
+        { ship_id: 'S1', ship_name: 'S1' },
+        { ship_id: 'S2', ship_name: 'S2' },
+      ],
+      dry_docks: [
+        { ship_id: 'S1', date: '2026-08-01', read_only: true },
+        { ship_id: 'S2', date: '2026-09-01', read_only: true },
+      ],
+      maintenance_events: [
+        { ship_id: 'S1', date: '2026-01-01', type: 'UWC', notes: '' },
+        { ship_id: 'S2', date: '2026-02-01', type: 'PP', notes: '' },
+      ],
+    } as unknown as ScheduleResponse
+
+    const selected = scheduleForSelectedShip(schedule, 'S2')
+
+    expect(selected.recommendations.map(({ ship_id }) => ship_id)).toEqual(['S2'])
+    expect(selected.dry_docks.map(({ ship_id }) => ship_id)).toEqual(['S2'])
+    expect(selected.maintenance_events.map(({ ship_id }) => ship_id)).toEqual(['S2'])
   })
 
   it('presents source maintenance action codes as Chinese-only UI names', () => {
