@@ -283,7 +283,10 @@ def advisor(body: AskBody):
 
 @app.get("/")
 def index():
-    return FileResponse(config.FRONTEND_DIR / "index.html")
+    # 入口頁強制瀏覽器每次革驗（ETag 304），滾動更新後不再吃到舊 UI；
+    # JS/CSS 資產是 hash 檔名，瀏覽器快取無害。
+    return FileResponse(config.FRONTEND_DIR / "index.html",
+                        headers={"Cache-Control": "no-cache"})
 
 
 if (config.FRONTEND_DIR / "assets").exists():
