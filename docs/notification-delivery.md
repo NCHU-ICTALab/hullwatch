@@ -20,8 +20,8 @@
 
 ## Email 寄送路徑（中繼優先）
 
-1. **主路徑＝主辦方 SQS 寄信中繼**：設定 `HW_EMAIL_QUEUE_URL` 後，app 將 SESv2 SendEmail
-   payload 丟進主辦方 queue，由對方 Lambda＋SES 寄出（From＝`HW_EMAIL_QUEUE_FROM`，預設
+1. **主路徑＝自建 SQS 寄信中繼**（團隊第二 AWS 帳號 905418031238）：設定 `HW_EMAIL_QUEUE_URL`
+   後，app 將 SESv2 SendEmail payload 丟進中繼 queue，由自建 Lambda＋SES 寄出（From＝`HW_EMAIL_QUEUE_FROM`，預設
    `HullWatch <events@awsug.net>`；ReplyTo＝`HW_SES_FROM_EMAIL`）——**任何收件者免 SES 驗證**。
 2. 中繼未設時退**直寄 SES**：sandbox 下寄件者與收件者都要先驗證；未驗證收件者會收到自動驗證引導。
 3. **Discord**：逐訂閱推播到自填 webhook；`HW_DISCORD_WEBHOOK_URL` 僅作系統頻道 fallback（選配）。
@@ -29,7 +29,7 @@
 ## Bash 啟動設定
 
 ```bash
-export HW_EMAIL_QUEUE_URL='https://sqs.us-east-1.amazonaws.com/905418031238/emailQueue'  # 主辦方中繼（主路徑）
+export HW_EMAIL_QUEUE_URL='https://sqs.us-east-1.amazonaws.com/905418031238/emailQueue'  # 自建中繼・第二帳號（主路徑）
 export HW_SES_FROM_EMAIL='team-mailbox@example.com'   # ReplyTo；中繼未設時的 SES 直寄寄件者
 export HW_SES_REGION='us-east-1'
 # export HW_DISCORD_WEBHOOK_URL='https://discord.com/api/webhooks/...'   # 選配：系統頻道 fallback

@@ -59,7 +59,7 @@ BEDROCK_KB_ID = _s("HW_BEDROCK_KB_ID", "")
 
 # --- notifications (empty means configured channel is disabled) ---
 SES_FROM_EMAIL = _s("HW_SES_FROM_EMAIL", "")
-# SQS 寄信中繼（主辦方 AWSUG 提供；設定後 email 一律走中繼，繞過 SES sandbox）
+# SQS 寄信中繼（團隊自建，架於第二 AWS 帳號；設定後 email 一律走中繼，繞過 SES sandbox）
 EMAIL_QUEUE_URL = _s("HW_EMAIL_QUEUE_URL", "")
 EMAIL_QUEUE_FROM = _s("HW_EMAIL_QUEUE_FROM", "HullWatch <events@awsug.net>")
 SES_REGION = _s("HW_SES_REGION", "us-east-1")

@@ -49,7 +49,7 @@ class NotificationSubscriptionStore:
         self._lock = RLock()
         self.ses_from_email = config.SES_FROM_EMAIL if ses_from_email is None else ses_from_email
         self.discord_webhook_url = config.DISCORD_WEBHOOK_URL if discord_webhook_url is None else discord_webhook_url
-        # SQS 寄信中繼（主辦方帳號的 emailQueue）：設定後 email 一律走中繼，
+        # SQS 寄信中繼（團隊第二帳號的 emailQueue，自建）：設定後 email 一律走中繼，
         # 收件者不受 SES sandbox 驗證限制；留空退回直寄 SES。
         self.email_queue_url = config.EMAIL_QUEUE_URL if email_queue_url is None else email_queue_url
         self.email_queue_from = config.EMAIL_QUEUE_FROM if email_queue_from is None else email_queue_from
@@ -154,7 +154,7 @@ class NotificationSubscriptionStore:
     def _deliver(self, subscription: dict, subject: str, message: str) -> dict:
         channel = subscription["channel"]
         if channel == "email":
-            if self.email_queue_url:  # 主辦方 SQS 中繼（SESv2 payload），免 sandbox 驗證
+            if self.email_queue_url:  # 自建 SQS 中繼（SESv2 payload），免 sandbox 驗證
                 payload = {
                     "FromEmailAddress": self.email_queue_from,
                     "Destination": {"ToAddresses": [subscription["destination"]]},
