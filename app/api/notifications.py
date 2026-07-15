@@ -185,6 +185,27 @@ class NotificationSubscriptionStore:
             lines.append("目前訂閱範圍內沒有船舶資料。")
         return "\n".join(lines), len(selected)
 
+    # ---------- SES sandbox 收件者驗證 ----------
+
+    def email_verification_status(self, email: str) -> str:
+        """success｜pending｜none｜unknown（無查詢權限或呼叫失敗）。"""
+        try:
+            attrs = self.ses_client_factory().get_identity_verification_attributes(
+                Identities=[email])
+            status = attrs.get("VerificationAttributes", {}).get(email, {}).get(
+                "VerificationStatus")
+            return (status or "none").lower()
+        except Exception:  # noqa: BLE001
+            return "unknown"
+
+    def request_email_verification(self, email: str) -> bool:
+        """觸發 AWS 驗證信（sandbox 下新收件者的必經流程）。"""
+        try:
+            self.ses_client_factory().verify_email_identity(EmailAddress=email)
+            return True
+        except Exception:  # noqa: BLE001
+            return False
+
     # ---------- 各類通知 ----------
 
     def send_digest(self, subscription_id: str, ships: list[dict]) -> dict:
@@ -208,6 +229,34 @@ class NotificationSubscriptionStore:
             f"HullWatch 訂閱確認：{kind_label}\n訂閱船舶目前狀態如下——")
         result = self._deliver(subscription, "HullWatch 訂閱確認", message)
         return {**result, "ship_count": count}
+
+    def send_welcome_or_request_verification(self, subscription_id: str, ships: list[dict],
+                                             watch_threshold: float) -> dict:
+        """訂閱確認：email 收件者未通過 SES sandbox 驗證時，改寄 AWS 驗證信並如實回報。
+
+        新信箱第一次訂閱本來會被 SES 硬拒（Email address is not verified）——
+        這裡把它變成引導流程：verification_sent → 使用者點驗證連結 → 之後通知照常。
+        """
+        subscription = next((item for item in self._load() if item["id"] == subscription_id), None)
+        if subscription is None:
+            raise KeyError(subscription_id)
+        if subscription["channel"] == "email" and self.ses_from_email:
+            status = self.email_verification_status(subscription["destination"])
+            if status == "unknown":
+                # 無查詢權限：直接嘗試寄，被 sandbox 拒收再退驗證流程
+                try:
+                    return self.send_welcome(subscription_id, ships, watch_threshold)
+                except Exception as exc:  # noqa: BLE001
+                    if "not verified" not in str(exc):
+                        raise
+                    status = "none"
+            if status != "success":
+                if self.request_email_verification(subscription["destination"]):
+                    return {"delivered": False, "status": "verification_sent",
+                            "channel": "email"}
+                return {"delivered": False, "status": "verification_unavailable",
+                        "channel": "email"}
+        return self.send_welcome(subscription_id, ships, watch_threshold)
 
     def notify_noon_report_updates(self, updates: list[dict], ships: list[dict],
                                    watch_threshold: float) -> dict:

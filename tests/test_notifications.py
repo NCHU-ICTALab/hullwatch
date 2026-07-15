@@ -182,3 +182,48 @@ def test_invalid_kind_rejected(tmp_path):
         raise AssertionError("未知訂閱類型應被拒絕")
     except ValueError as exc:
         assert "訂閱類型" in str(exc)
+
+
+class FakeSesWithVerification(FakeSesClient):
+    def __init__(self, verified=()):
+        super().__init__()
+        self.verified = set(verified)
+        self.verify_requests = []
+
+    def get_identity_verification_attributes(self, Identities):
+        return {"VerificationAttributes": {
+            e: {"VerificationStatus": "Success"} for e in Identities if e in self.verified}}
+
+    def verify_email_identity(self, EmailAddress):
+        self.verify_requests.append(EmailAddress)
+        return {}
+
+
+def test_first_time_email_triggers_verification_instead_of_error(tmp_path):
+    ses = FakeSesWithVerification(verified=["old@example.com"])
+    store = NotificationSubscriptionStore(
+        tmp_path / "subscriptions.json",
+        ses_from_email="sender@example.com", ses_client_factory=lambda: ses,
+    )
+    # 已驗證信箱：照常寄確認
+    ok = store.create("email", "old@example.com", ["HW-001"])
+    result = store.send_welcome_or_request_verification(ok["id"], _ships_status(), 5.0)
+    assert result["delivered"] is True and len(ses.calls) == 1
+
+    # 第一次出現的新信箱：不硬寄（會被 SES 拒），改觸發 AWS 驗證信
+    new = store.create("email", "brand.new@example.com", ["HW-001"])
+    result = store.send_welcome_or_request_verification(new["id"], _ships_status(), 5.0)
+    assert result == {"delivered": False, "status": "verification_sent", "channel": "email"}
+    assert ses.verify_requests == ["brand.new@example.com"]
+    assert len(ses.calls) == 1  # 沒有多寄任何信
+
+
+def test_discord_welcome_skips_verification(tmp_path):
+    discord = FakeDiscordClient()
+    store = NotificationSubscriptionStore(
+        tmp_path / "subscriptions.json",
+        discord_webhook_url="", discord_client_factory=lambda: discord,
+    )
+    sub = store.create("discord", "https://discord.com/api/webhooks/1/a-b_c", ["HW-001"])
+    result = store.send_welcome_or_request_verification(sub["id"], _ships_status(), 5.0)
+    assert result["delivered"] is True and discord.calls

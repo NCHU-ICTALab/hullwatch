@@ -599,7 +599,7 @@ class FleetService:
         created = self.notification_subscriptions.create(channel, destination, ship_ids, kind)
         # 規則 2：訂閱當下寄確認通知（失敗不阻擋訂閱成立，狀態如實回報）
         try:
-            welcome = self.notification_subscriptions.send_welcome(
+            welcome = self.notification_subscriptions.send_welcome_or_request_verification(
                 created["id"], self.fleet_overview()["ships"], config.WATCH_THRESHOLD_PCT)
         except Exception as exc:  # noqa: BLE001
             welcome = {"delivered": False, "status": "error", "reason": str(exc)[:120]}

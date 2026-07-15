@@ -938,7 +938,11 @@ function NotificationManager() {
     try {
       const created = await api.createNotificationSubscription({ channel, kind, destination: channel === 'email' ? email : (discordUrl.trim() || undefined), ship_ids: shipIds })
       setEmail(''); setDiscordUrl(''); setShipIds([]); await load()
-      setMessage(created.welcome?.delivered ? '訂閱已儲存，確認通知已寄出。' : `訂閱已儲存（確認通知未送出：${created.welcome?.status ?? '通道未設定'}）。`)
+      const welcomeStatus = created.welcome?.status
+      setMessage(created.welcome?.delivered ? '訂閱已儲存，確認通知已寄出。'
+        : welcomeStatus === 'verification_sent' ? '訂閱已儲存！第一次使用這個信箱：AWS 驗證信已寄出，請點擊信中的驗證連結（也看看垃圾信匣），完成後即可開始接收通知。'
+        : welcomeStatus === 'verification_unavailable' ? '訂閱已儲存，但此信箱尚未通過收件驗證（SES sandbox），暫時收不到信——請聯絡管理員協助驗證。'
+        : `訂閱已儲存（確認通知未送出：${welcomeStatus ?? '通道未設定'}）。`)
     } catch (reason) { setMessage(reason instanceof Error ? reason.message : '訂閱儲存失敗') } finally { setBusy(false) }
   }
   const send = async (id: string) => {
