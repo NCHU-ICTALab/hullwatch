@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import io
+import json
 from contextlib import asynccontextmanager
 from datetime import date
 from typing import Literal
 
 import pandas as pd
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import FileResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -279,6 +280,25 @@ def advisor(body: AskBody):
     if app.state.advisor is None:
         raise HTTPException(503, "顧問未初始化")
     return app.state.advisor.ask(body.question)
+
+
+@app.post("/api/advisor/stream")
+def advisor_stream(body: AskBody):
+    """SSE 串流版顧問：逐 token 回傳（type=token/tool/done），前端逐字渲染。
+
+    非串流版 /api/advisor 保留給測試與相容用途。sync generator 由 Starlette
+    丟進 threadpool 跑，不會卡住 event loop。
+    """
+    if app.state.advisor is None:
+        raise HTTPException(503, "顧問未初始化")
+
+    def gen():
+        for event in app.state.advisor.ask_stream(body.question):
+            yield "data: " + json.dumps(event, ensure_ascii=False) + "\n\n"
+
+    return StreamingResponse(gen(), media_type="text/event-stream",
+                             headers={"Cache-Control": "no-cache",
+                                      "X-Accel-Buffering": "no"})
 
 
 @app.get("/")

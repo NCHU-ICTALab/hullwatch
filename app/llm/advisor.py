@@ -105,6 +105,44 @@ class Advisor:
                 return out
         return self._ask_scripted(question)
 
+    def ask_stream(self, question: str):
+        """串流版 ask()：逐項 yield 事件 dict——
+        {"type":"token","text":…}（LLM 逐字輸出）
+        {"type":"tool","name":…,"step":…}（工具執行完成的進度標記）
+        {"type":"done","mode":…,"steps":[…],"citations":[…]}（收尾）
+        agent 失敗時退回 scripted（答案一次送出），前端無需分支。"""
+        if self._agent is None:
+            out = self._ask_scripted(question)
+            yield {"type": "token", "text": out["answer"]}
+            yield {"type": "done", "mode": out["mode"], "steps": out["steps"],
+                   "citations": out["citations"]}
+            return
+        steps: list[str] = []
+        try:
+            from langchain_core.messages import AIMessageChunk, ToolMessage
+
+            for chunk, _meta in self._agent.stream(
+                {"messages": [("user", question)]}, stream_mode="messages"
+            ):
+                if isinstance(chunk, ToolMessage):  # 工具剛跑完（本地、毫秒級）
+                    step = chunk.name or "tool"
+                    steps.append(step)
+                    yield {"type": "tool", "name": step, "step": step}
+                    continue
+                if isinstance(chunk, AIMessageChunk):
+                    text = chunk.content
+                    if isinstance(text, list):  # Claude 內容區塊
+                        text = "".join(b.get("text", "") for b in text if isinstance(b, dict))
+                    if text:
+                        yield {"type": "token", "text": text}
+            cites = [c["source"] for c in self._tool_kb(question)]
+            yield {"type": "done", "mode": "agent", "steps": steps, "citations": cites}
+        except Exception as e:  # Bedrock 掛掉時保命：退回 scripted
+            out = self._ask_scripted(question)
+            yield {"type": "token", "text": out["answer"]}
+            yield {"type": "done", "mode": f"scripted (agent 失敗: {type(e).__name__})",
+                   "steps": out["steps"], "citations": out["citations"]}
+
     def _ask_agent(self, question: str) -> dict:
         result = self._agent.invoke({"messages": [("user", question)]})
         msgs = result["messages"]

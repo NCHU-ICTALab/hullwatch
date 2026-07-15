@@ -1,5 +1,6 @@
 import type {
   AdvisorResponse,
+  AdvisorStreamEvent,
   AlertsResponse,
   DataResetStatus,
   FleetResponse,
@@ -95,4 +96,27 @@ export const api = {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ question }),
   }),
+  // SSE 串流版：每收到一個事件（token / tool / done）就回呼 onEvent，前端逐字渲染
+  advisorStream: async (question: string, onEvent: (e: AdvisorStreamEvent) => void) => {
+    const res = await fetch('/api/advisor/stream', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ question }),
+    })
+    if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`)
+    const reader = res.body.getReader()
+    const decoder = new TextDecoder()
+    let buffer = ''
+    for (;;) {
+      const { done, value } = await reader.read()
+      if (done) break
+      buffer += decoder.decode(value, { stream: true })
+      let idx: number
+      while ((idx = buffer.indexOf('\n\n')) >= 0) {
+        const raw = buffer.slice(0, idx)
+        buffer = buffer.slice(idx + 2)
+        if (raw.startsWith('data: ')) onEvent(JSON.parse(raw.slice(6)) as AdvisorStreamEvent)
+      }
+    }
+  },
 }

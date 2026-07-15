@@ -408,6 +408,20 @@ def test_advisor_scripted(client):
     assert "US$" in body["answer"]
 
 
+def test_advisor_stream_scripted(client):
+    """SSE 串流端點：stub 模式下也要吐 token + done 事件，格式與 agent 模式一致。"""
+    r = client.post("/api/advisor/stream", json={"question": "哪幾艘該優先清洗？"})
+    assert r.status_code == 200
+    assert r.headers["content-type"].startswith("text/event-stream")
+    events = [json.loads(line[len("data: "):])
+              for line in r.text.split("\n\n") if line.startswith("data: ")]
+    kinds = [e["type"] for e in events]
+    assert kinds[-1] == "done" and "token" in kinds
+    done = events[-1]
+    assert done["mode"] == "scripted" and done["steps"] and done["citations"]
+    assert "US$" in "".join(e["text"] for e in events if e["type"] == "token")
+
+
 def test_advisor_ship_cost(client):
     ship = client.get("/api/fleet").json()["ships"][0]
     r = client.post("/api/advisor",

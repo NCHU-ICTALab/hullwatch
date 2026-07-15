@@ -265,6 +265,11 @@ export interface AdvisorResponse {
   citations: string[]
 }
 
+export type AdvisorStreamEvent =
+  | { type: 'token'; text: string }
+  | { type: 'tool'; name: string; step?: string }
+  | { type: 'done'; mode: string; steps: string[]; citations: string[] }
+
 export interface DataResetStatus {
   state: 'idle' | 'running' | 'done' | 'error'
   step: string | null

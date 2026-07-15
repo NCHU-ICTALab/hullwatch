@@ -349,6 +349,11 @@ th { background: var(--hw-panel-2); color: var(--hw-muted); font-size: 9px; lett
 .advisor-answer > span { color: var(--hw-teal); font-family: var(--hw-mono); font-size: 9px; font-weight: 800; }
 .advisor-answer p { white-space: pre-wrap; line-height: 1.65; }
 .advisor-answer small { color: var(--hw-muted); }
+.advisor-tool-trace { margin: 8px 0 0; padding: 0; list-style: none; display: grid; gap: 3px; }
+.advisor-tool-trace li { color: var(--hw-muted); font-family: var(--hw-mono); font-size: 11px; }
+.advisor-thinking { color: var(--hw-muted); font-size: 12.5px; }
+.advisor-cursor { display: inline-block; width: 8px; height: 15px; margin-left: 2px; vertical-align: -2px; background: var(--hw-teal); animation: advisor-blink 1s steps(2, start) infinite; }
+@keyframes advisor-blink { to { visibility: hidden; } }
 .markdown-content { min-width: 0; overflow-wrap: anywhere; }
 .markdown-content > :first-child { margin-top: 10px; }
 .markdown-content > :last-child { margin-bottom: 10px; }
