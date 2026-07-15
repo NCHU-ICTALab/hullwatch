@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { advisorWidthBounds, allocateEventLanes, clampAdvisorWidth, cleaningSavings, decisionModelOptions, fleetShipMatchesFilters, fuelHistoryForGrade, layoutTrendEventMarkers, maintenanceActionLabel, speedLossMinimumForStatus } from './dashboardLogic'
+import { advisorWidthBounds, allocateEventLanes, clampAdvisorWidth, cleaningSavings, decisionModelOptions, fleetShipMatchesFilters, fuelHistoryForGrade, GANTT_EVENT_LABEL_CLEARANCE_DAYS, layoutTrendEventMarkers, maintenanceActionLabel, maintenanceActionPresentation, maintenanceTimelineMarkerLabel, speedLossMinimumForStatus } from './dashboardLogic'
 import type { FuelPriceResponse, ModelInfo } from './types'
 
 describe('dashboard behavior', () => {
@@ -11,6 +11,15 @@ describe('dashboard behavior', () => {
     ])
 
     expect(result.map(({ lane }) => lane)).toEqual([0, 1, 0])
+  })
+
+  it('uses wider lane clearance when Gantt event names must remain readable', () => {
+    const result = allocateEventLanes([
+      { ship_id: 'HW-001', date: '2026-07-01', type: 'cleaning', notes: '' },
+      { ship_id: 'HW-001', date: '2026-07-20', type: 'propeller_polish', notes: '' },
+    ], GANTT_EVENT_LABEL_CLEARANCE_DAYS)
+
+    expect(result.map(({ lane }) => lane)).toEqual([0, 1])
   })
 
   it('expresses cleaning scenarios as savings relative to no cleaning', () => {
@@ -85,6 +94,18 @@ describe('dashboard behavior', () => {
     expect(maintenanceActionLabel('UWI')).toBe('水下檢查（僅拍照，無物理介入）')
     expect(maintenanceActionLabel('unknown')).toBe('unknown')
     expect(maintenanceActionLabel()).toBe('—')
+  })
+
+  it('normalizes API maintenance aliases and keeps timeline event names visible', () => {
+    expect(maintenanceActionLabel('propeller_polish')).toBe('螺旋槳拋光')
+    expect(maintenanceActionLabel('cleaning')).toBe('船殼清洗')
+    expect(maintenanceActionLabel('inspection')).toBe('水下檢查（僅拍照，無物理介入）')
+    expect(maintenanceActionLabel('drydock')).toBe('進塢（全面塗裝 + 機械保養）')
+    expect(maintenanceTimelineMarkerLabel('propeller_polish')).toBe('螺旋槳拋光')
+    expect(maintenanceTimelineMarkerLabel('inspection')).toBe('水下檢查')
+    expect(maintenanceTimelineMarkerLabel('drydock')).toBe('進塢大修')
+    expect(maintenanceActionPresentation('drydock').kind).toBe('DD')
+    expect(maintenanceActionPresentation('propeller_polish').kind).toBe('PP')
   })
 
   it('keeps the resizable advisor usable without consuming the dashboard', () => {

@@ -22,7 +22,7 @@ import type { EChartsOption } from 'echarts'
 import { api } from './api'
 import { EChart } from './components/EChart'
 import { MarkdownContent } from './components/MarkdownContent'
-import { advisorWidthBounds, allocateEventLanes, clampAdvisorWidth, cleaningSavings, decisionModelOptions, EVENT_LANE_HEIGHT, fleetShipMatchesFilters, fuelHistoryForGrade, layoutTrendEventMarkers, maintenanceActionLabel, speedLossMinimumForStatus } from './dashboardLogic'
+import { advisorWidthBounds, allocateEventLanes, clampAdvisorWidth, cleaningSavings, decisionModelOptions, EVENT_LANE_HEIGHT, fleetShipMatchesFilters, fuelHistoryForGrade, GANTT_EVENT_LABEL_CLEARANCE_DAYS, layoutTrendEventMarkers, maintenanceActionLabel, maintenanceActionPresentation, speedLossMinimumForStatus } from './dashboardLogic'
 import type {
   AdvisorResponse,
   AlertsResponse,
@@ -706,10 +706,10 @@ function GanttRow({ item, timelineStart, totalDays, todayRatio, dryDock, events,
   const eventLanes = allocateEventLanes([
     ...events,
     ...(dryDock ? [{ ship_id: item.ship_id, date: dryDock, type: 'DD', notes: '既定乾塢事件' }] : []),
-  ])
+  ], GANTT_EVENT_LABEL_CLEARANCE_DAYS)
   const laneCount = Math.max(1, ...eventLanes.map(({ lane }) => lane + 1))
   const actionLabel = maintenanceActionLabel(item.action)
-  return <button className={`gantt-row ${selected ? 'selected' : ''}`} onClick={() => onOpen(item)} aria-label={`選擇 ${item.ship_name}，建議動作 ${actionLabel}`}><span className="gantt-name"><b>{item.ship_name}</b><small>{item.ship_id}</small></span><span className="gantt-track" style={{ height: `${laneCount * EVENT_LANE_HEIGHT + 30}px` }}><span className="today-line" style={{ left: `${todayRatio * 100}%` }} aria-hidden="true" />{eventLanes.map(({ event, lane }, index) => { const position = day(event.date); const eventLabel = maintenanceActionLabel(event.type); return position >= 0 && position <= totalDays ? <span key={`${event.date}-${event.type}-${index}`} className={event.type === 'DD' ? 'dd-block' : 'event-mark'} aria-label={`${event.date} ${eventLabel}：${event.notes || '無附註'}`} title={`${event.date} ${eventLabel}：${event.notes || '無附註'}`} style={{ left: `${position / totalDays * 100}%`, top: `${lane * EVENT_LANE_HEIGHT + 1}px` }}>◆</span> : null })}<span className={`gantt-bar action-${item.action.replace('+', '-plus-')}`} title={actionLabel} style={{ left: `${Math.max(0, start / totalDays * 100)}%`, width: `${Math.max(2.5, (end - start) / totalDays * 100)}%` }}>{actionLabel}</span></span><span className="gantt-impact">+{item.speed_loss_recovery_pp.toFixed(1)}pp<small>{money.format(item.monthly_saving_usd)}/月</small></span></button>
+  return <button className={`gantt-row ${selected ? 'selected' : ''}`} onClick={() => onOpen(item)} aria-label={`選擇 ${item.ship_name}，建議動作 ${actionLabel}`}><span className="gantt-name"><b>{item.ship_name}</b><small>{item.ship_id}</small></span><span className="gantt-track" style={{ height: `${laneCount * EVENT_LANE_HEIGHT + 30}px` }}><span className="today-line" style={{ left: `${todayRatio * 100}%` }} aria-hidden="true" />{eventLanes.map(({ event, lane }, index) => { const position = day(event.date); const presentation = maintenanceActionPresentation(event.type); return position >= 0 && position <= totalDays ? <span key={`${event.date}-${event.type}-${index}`} className={presentation.kind === 'DD' ? 'dd-block' : 'event-mark'} aria-label={`${event.date} ${presentation.label}：${event.notes || '無附註'}`} title={`${event.date} ${presentation.label}：${event.notes || '無附註'}`} style={{ left: `${position / totalDays * 100}%`, top: `${lane * EVENT_LANE_HEIGHT + 1}px` }}>{presentation.timelineLabel}</span> : null })}<span className={`gantt-bar action-${item.action.replace('+', '-plus-')}`} title={actionLabel} style={{ left: `${Math.max(0, start / totalDays * 100)}%`, width: `${Math.max(2.5, (end - start) / totalDays * 100)}%` }}>{actionLabel}</span></span><span className="gantt-impact">+{item.speed_loss_recovery_pp.toFixed(1)}pp<small>{money.format(item.monthly_saving_usd)}/月</small></span></button>
 }
 
 function Metric({ label, value, unit, tone, spark, compact = false }: { label: string; value: string; unit?: string; tone?: 'teal' | 'amber' | 'red'; spark?: number[]; compact?: boolean }) {

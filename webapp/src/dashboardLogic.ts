@@ -2,13 +2,14 @@ import type { FleetShip, FuelPriceResponse, ModelInfo, ScheduleResponse, ShipDet
 
 export const EVENT_LANE_HEIGHT = 24
 export const TREND_EVENT_LANE_OFFSET_PX = 32
+export const GANTT_EVENT_LABEL_CLEARANCE_DAYS = 90
 const EVENT_LABEL_CLEARANCE_DAYS = 14
 
-export function allocateEventLanes(events: ScheduleResponse['maintenance_events']) {
+export function allocateEventLanes(events: ScheduleResponse['maintenance_events'], clearanceDays = EVENT_LABEL_CLEARANCE_DAYS) {
   const laneEnds: number[] = []
   return [...events].sort((a, b) => a.date.localeCompare(b.date)).map((event) => {
     const eventDay = new Date(event.date).getTime() / 86400000
-    let lane = laneEnds.findIndex((end) => eventDay - end >= EVENT_LABEL_CLEARANCE_DAYS)
+    let lane = laneEnds.findIndex((end) => eventDay - end >= clearanceDays)
     if (lane < 0) lane = laneEnds.length
     laneEnds[lane] = eventDay
     return { event, lane }
@@ -23,21 +24,53 @@ export function fuelHistoryForGrade(fuel: FuelPriceResponse, grade: string) {
   return fuel.history_by_grade[grade] ?? []
 }
 
-const MAINTENANCE_ACTION_LABELS: Record<string, string> = {
-  PP: '螺旋槳拋光',
-  'UWI+PP': '水下檢查 + 螺旋槳拋光',
-  UWC: '船殼清洗',
-  'UWC+PP': '船殼清洗 + 螺旋槳拋光',
-  DD: '進塢（全面塗裝 + 機械保養）',
-  UWI: '水下檢查（僅拍照，無物理介入）',
+export type MaintenanceActionKind = 'PP' | 'UWI+PP' | 'UWC' | 'UWC+PP' | 'DD' | 'UWI' | 'unknown'
+
+const MAINTENANCE_ACTIONS: Record<Exclude<MaintenanceActionKind, 'unknown'>, { label: string; timelineLabel: string }> = {
+  PP: { label: '螺旋槳拋光', timelineLabel: '螺旋槳拋光' },
+  'UWI+PP': { label: '水下檢查 + 螺旋槳拋光', timelineLabel: '水檢＋螺旋槳拋光' },
+  UWC: { label: '船殼清洗', timelineLabel: '船殼清洗' },
+  'UWC+PP': { label: '船殼清洗 + 螺旋槳拋光', timelineLabel: '船洗＋螺旋槳拋光' },
+  DD: { label: '進塢（全面塗裝 + 機械保養）', timelineLabel: '進塢大修' },
+  UWI: { label: '水下檢查（僅拍照，無物理介入）', timelineLabel: '水下檢查' },
+}
+
+const MAINTENANCE_ACTION_ALIASES: Partial<Record<string, Exclude<MaintenanceActionKind, 'unknown'>>> = {
+  PP: 'PP',
+  PROPELLER_POLISH: 'PP',
+  PROPELLER_POLISHING: 'PP',
+  'UWI+PP': 'UWI+PP',
+  UWC: 'UWC',
+  CLEANING: 'UWC',
+  HULL_CLEANING: 'UWC',
+  UNDERWATER_CLEANING: 'UWC',
+  'UWC+PP': 'UWC+PP',
+  DD: 'DD',
+  DRYDOCK: 'DD',
+  DRY_DOCK: 'DD',
+  UWI: 'UWI',
+  INSPECTION: 'UWI',
+  UNDERWATER_INSPECTION: 'UWI',
+}
+
+function maintenanceActionKey(action: string) {
+  return action.trim().toUpperCase().replace(/[\s-]+/g, '_')
 }
 
 export function maintenanceActionLabel(action?: string | null) {
+  return maintenanceActionPresentation(action).label
+}
+
+export function maintenanceTimelineMarkerLabel(action?: string | null) {
+  return maintenanceActionPresentation(action).timelineLabel
+}
+
+export function maintenanceActionPresentation(action?: string | null): { kind: MaintenanceActionKind; label: string; timelineLabel: string } {
   const source = action?.trim()
-  if (!source) return '—'
-  const code = source.toUpperCase()
-  const label = MAINTENANCE_ACTION_LABELS[code]
-  return label ?? source
+  if (!source) return { kind: 'unknown', label: '—', timelineLabel: '—' }
+  const kind = MAINTENANCE_ACTION_ALIASES[maintenanceActionKey(source)] ?? 'unknown'
+  if (kind === 'unknown') return { kind, label: source, timelineLabel: source }
+  return { kind, ...MAINTENANCE_ACTIONS[kind] }
 }
 
 export function advisorWidthBounds(viewportWidth: number) {

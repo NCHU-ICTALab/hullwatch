@@ -187,3 +187,11 @@
 - private `hullwatch-data` 的 `wiki/internal-support-v1` 已 fast-forward 到 `main` 並直接 push（`18c6339 → ffb112c`）；本機 `llm-wiki/.obsidian/` 保持未追蹤，沒有上傳。
 - 驗證：新增中文名稱、事件編號／32px 分層與顧問寬度邊界測試；前端 Vitest **11 passed**、oxlint 0 warnings／0 errors、TypeScript + Vite production build 通過，`git diff --check` 無空白錯誤。雙軸 review 發現並修正標記文字對比、資料值間距不等於像素間距及拖曳觸控範圍三項問題；Vite 既有 bundle size warning 仍在。
 - 視覺 QA：依 in-app Browser 規範重新連線並讀取 troubleshooting，但可用 backend 仍為空；未以其他瀏覽器工具繞過。需由使用者本機確認三 viewport、側欄拖曳、ECharts tooltip 與實際字型渲染。
+
+## 2026-07-15 第十一批：API 維護別名中文化與甘特事件名稱恢復
+
+- 截圖回報「最近清潔動作」仍顯示 `propeller_polish`。最小回歸測試確認不是舊 build，而是前端字典只處理 PP／UWC／UWI／DD，API `last_event.type` 實際沿用 canonical `events.csv` 的 snake_case 值。
+- 盤點真實 artifact 後確認 API 事件值為 `cleaning`、`drydock`、`inspection`、`propeller_polish`。中央維護模型現在先把這四種別名、原始競賽代碼，以及常見空白／連字號變體正規化成 canonical kind，再由單一 metadata 產生完整 UI 名稱與甘特短名稱；診斷 KPI、Speed Loss 清單、日誌與排程表共用同一轉換。UI 中文依使用者指定的資料集 README 字典；`CONTEXT.md` 的「水下船體清潔／進塢大修」保留為領域概念同義詞。
+- 甘特歷史事件不再只顯示菱形，恢復為「船殼清洗／螺旋槳拋光／水下檢查／進塢大修」中文名稱。標籤保留 title 與完整 aria-label，視覺名稱使用 12px、可截斷的高對比文字。
+- 為避免文字標籤重疊，`allocateEventLanes` 增加可選 clearance；Speed Loss 維持 14 天規則，甘特事件名稱使用 90 天 lane 重用間隔，軌道高度仍隨 lane 數自動增加。
+- 驗證：新增 API alias 與甘特文字 lane 測試；前端 Vitest **13 passed**、oxlint 0 warnings／0 errors、TypeScript + Vite production build 通過。既有 bundle size warning 仍在。

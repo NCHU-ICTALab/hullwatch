@@ -205,11 +205,11 @@ th { background: var(--hw-panel-2); color: var(--hw-muted); font-size: 9px; lett
 .gantt-name small, .gantt-impact small { color: var(--hw-muted); font-family: var(--hw-mono); font-size: 9px; }
 .gantt-track { position: relative; min-height: 54px; background: repeating-linear-gradient(90deg, transparent, transparent calc(25% - 1px), var(--hw-line-2) 25%); border: 1px solid var(--hw-line-2); }
 .today-line { position: absolute; z-index: 2; top: -4px; bottom: -4px; width: 2px; background: var(--hw-red); }
-.event-mark { position: absolute; z-index: 2; width: 22px; height: 22px; display: grid; place-items: center; transform: translateX(-50%); background: var(--hw-panel); border: 1px solid var(--hw-amber); color: var(--hw-amber); font-size: 11px; font-weight: 800; }
+.event-mark { position: absolute; z-index: 2; width: max-content; max-width: 150px; min-height: 24px; padding: 3px 7px; transform: translateX(-50%); overflow: hidden; background: var(--hw-amber-soft); border: 1px solid var(--hw-amber); color: var(--hw-ink); font-size: 12px; font-weight: 800; text-overflow: ellipsis; white-space: nowrap; }
 .gantt-bar { position: absolute; bottom: 3px; height: 24px; min-width: 50px; display: block; padding: 4px 7px; overflow: hidden; background: var(--hw-teal); color: white; font-size: 11px; font-weight: 800; text-align: center; text-overflow: ellipsis; white-space: nowrap; }
 .gantt-bar.action-PP { background: var(--hw-amber); }
 .gantt-bar.action-UWC-plus-PP { background: var(--hw-red); }
-.dd-block { position: absolute; z-index: 3; width: 28px; height: 22px; display: grid; place-items: center; transform: translateX(-50%); background: repeating-linear-gradient(135deg, var(--hw-muted), var(--hw-muted) 3px, var(--hw-panel) 3px, var(--hw-panel) 6px); border: 1px solid var(--hw-ink); color: var(--hw-ink); font-family: var(--hw-mono); font-size: 8px; font-weight: 900; }
+.dd-block { position: absolute; z-index: 3; width: max-content; max-width: 150px; min-height: 24px; padding: 3px 7px; transform: translateX(-50%); overflow: hidden; background: var(--hw-panel-2); border: 1px solid var(--hw-ink); color: var(--hw-ink); font-size: 12px; font-weight: 900; text-overflow: ellipsis; white-space: nowrap; }
 .gantt-impact { font-family: var(--hw-mono); font-weight: 800; text-align: right; }
 .schedule-detail { display: grid; grid-template-columns: 180px 1fr auto; align-items: center; gap: 18px; padding: 13px 16px; border-top: 2px solid var(--hw-teal); background: var(--hw-teal-soft); }
 .schedule-detail span, .schedule-detail strong { display: block; }
