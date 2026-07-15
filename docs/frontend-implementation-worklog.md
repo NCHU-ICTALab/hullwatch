@@ -146,3 +146,11 @@
 - 正午日報、模型 JSON 與水下照片三個入口統一使用共用 UploadZone。原生 file input 保留鍵盤與螢幕閱讀器語意，但改為覆蓋式控制，不再以 intrinsic width 撐開 grid。
 - 上傳區新增一致的選擇檔案按鈕視覺、目前檔名、ellipsis 截斷、`focus-within` 可見焦點，以及 grid 子項 `min-width: 0`。
 - 驗證：前端 Vitest **6 passed**；`npm run lint` 與 production build 通過。in-app Browser 仍無可用 backend，實際視窗寬度下的視覺點擊待使用者本機確認。
+
+## 2026-07-15 第七批：Private data repository 交接
+
+- 建立 private `NCHU-ICTALab/hullwatch-data` 作為資料團隊與 AWS 團隊直接 pull／push 的共同工作 repository；不採 submodule 或 snapshot 複製。
+- 原始陽明格式資料、canonical raw、Dashboard artifacts、提交結果與 P0 SageMaker 模型包均由 Git LFS 追蹤；每次更新以 `MANIFEST.sha256` 驗證大小與 SHA-256。
+- `fuel-market-cache.json` 與 `notification-subscriptions.json` 保持部署本地狀態，不進資料版控；憑證與 webhook 亦明確禁止提交。
+- 主程式以 `HW_DATA_DIR=../hullwatch-data/data` 直接使用共用資料，README 與 EC2 手冊同步加入 clone、LFS、驗證、Docker bind mount 與更新流程。
+- Fleet 狀態同步滑桿的語意問題另行記錄：目前 0%／1% 是該狀態現有船舶最低值，不是分級門檻；真正規則為 10% 清洗門檻與 60 天 watch window，修正呈現方式待使用者確認。

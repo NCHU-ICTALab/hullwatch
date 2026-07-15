@@ -84,13 +84,40 @@ Linux 或 macOS 請將虛擬環境啟用指令改為：
 source .venv/bin/activate
 ```
 
-## 快速啟動
+## 取得共享資料與模型
 
-第一次使用可先產生合成資料與 artifacts：
+正式資料、pipeline artifacts 與模型權重存放在 private
+[`NCHU-ICTALab/hullwatch-data`](https://github.com/NCHU-ICTALab/hullwatch-data) repository。
+將兩個 repositories clone 在同一層，並安裝 Git LFS：
 
 ```bash
-python -m app.pipeline.run --synth
+cd ..
+git clone https://github.com/NCHU-ICTALab/hullwatch-data.git
+cd hullwatch-data
+git lfs install
+git lfs pull
+python scripts/update_manifest.py --check
 ```
+
+Windows Git Bash 使用以下環境變數，讓後端與 pipeline 直接讀寫共享資料目錄：
+
+```bash
+cd ../hullwatch
+export HW_DATA_DIR="$(cd ../hullwatch-data/data && pwd -W)"
+```
+
+Linux 或 macOS 將 `pwd -W` 改為 `pwd`。`fuel-market-cache.json`、
+`notification-subscriptions.json` 等執行期狀態不會在 data repo 內同步。
+
+## 快速啟動
+
+使用 private data repo 時，先設定資料目錄：
+
+```bash
+export HW_DATA_DIR="$(cd ../hullwatch-data/data && pwd -W)"
+```
+
+沒有共享資料存取權時，才使用 `python -m app.pipeline.run --synth` 產生本機示範資料。
 
 開發模式需要兩個終端機。
 
@@ -98,6 +125,7 @@ python -m app.pipeline.run --synth
 
 ```bash
 source .venv/Scripts/activate
+export HW_DATA_DIR="$(cd ../hullwatch-data/data && pwd -W)"
 uvicorn app.api.main:app --reload --port 8777
 ```
 
@@ -177,7 +205,7 @@ data/artifacts/
 
 API 啟動時會從 `HW_DATA_DIR/artifacts` 載入這些檔案。`HW_DATA_DIR` 未設定時預設為 repository 下的 `data/`。
 
-`data/` 已由 `.gitignore` 排除。原始資料、衍生資料、模型產物與憑證不應提交到 Git repository。
+主程式 repository 的 `data/` 已由 `.gitignore` 排除。團隊共用的原始資料、衍生資料與模型產物提交至 private `hullwatch-data`，不要提交到 public 程式碼 repository。憑證與通知收件資料不可提交到任一 repository。
 
 ### 匯出 P0 SageMaker 交接包
 
@@ -209,12 +237,12 @@ FastAPI 會直接提供 `webapp/dist/`，瀏覽器開啟 `http://localhost:8000`
 
 ## Docker
 
-先在主機產生 `data/artifacts/`，再建立 image 並掛載資料目錄：
+先 clone private data repo 並執行 `git lfs pull`，再建立 image 並掛載其資料目錄：
 
 ```bash
 docker build -t hullwatch .
 docker run --rm -p 8000:8000 \
-  --mount type=bind,source="$(pwd)/data",target=/srv/hullwatch/data \
+  --mount type=bind,source="$(cd ../hullwatch-data/data && pwd)",target=/srv/hullwatch/data \
   hullwatch
 ```
 
@@ -279,7 +307,9 @@ npm run build
 
 ## 部署資料
 
-Docker image 不包含正式資料。建議將 `data/artifacts/` 儲存在私人 S3，讓執行環境透過 IAM Role 下載到持久化目錄，再掛載至容器的 `/srv/hullwatch/data`。
+Docker image 不包含正式資料。AWS 執行環境可使用唯讀 GitHub machine account、GitHub App 或細粒度 token clone private `hullwatch-data`，執行 `git lfs pull` 與 manifest 驗證後，再把 `data/` 掛載至容器的 `/srv/hullwatch/data`。不要把 token 寫進 image、repository 或 shell script。
+
+若資料量或更新頻率超過 Git LFS 適合的範圍，可再將部署來源改為 private S3；資料版本與 checksum 契約維持相同。
 
 只提供 Dashboard 與 API 時不需要部署原始資料目錄；`data/raw/` 僅在重新訓練或重建 artifacts 時使用。S3 bucket 應保持 private，並限制為服務執行角色所需的最小權限。
 

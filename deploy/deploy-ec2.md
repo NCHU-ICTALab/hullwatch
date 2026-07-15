@@ -16,35 +16,51 @@
 - Learner Lab 注意：只能用現成的 `LabRole` / `LabInstanceProfile`，別嘗試建 IAM。
   掛上 LabInstanceProfile 後，容器內的 boto3 會自動透過 instance metadata 取得憑證。
 
-## 2. 裝 Docker 並部署
+## 2. 裝 Docker、Git LFS 並部署
 
 ```bash
-sudo dnf install -y docker git
+sudo dnf install -y docker git git-lfs
 sudo systemctl enable --now docker
 sudo usermod -aG docker ec2-user && newgrp docker
 
-# 上傳程式碼（scp 或 git clone）
-scp -r hullwatch ec2-user@<IP>:~/    # 或 git clone <repo>
+# 使用已獲授權的 machine account、GitHub App 或細粒度 token clone 兩個 private repos。
+# 不要把憑證寫入下列指令、Dockerfile 或 repository。
+git clone https://github.com/NCHU-ICTALab/hullwatch.git
+git clone https://github.com/NCHU-ICTALab/hullwatch-data.git
 
-cd hullwatch
+cd hullwatch-data
+git lfs install
+git lfs pull
+python3 scripts/update_manifest.py --check
+
+cd ../hullwatch
 docker build -t hullwatch .
-docker run -d --name hw -p 8000:8000 --restart unless-stopped hullwatch
+docker run -d --name hw -p 8000:8000 --restart unless-stopped \
+  --mount type=bind,source="$HOME/hullwatch-data/data",target=/srv/hullwatch/data \
+  hullwatch
 ```
 
 瀏覽 `http://<EC2 公網 IP>:8000` → Live Demo 連結。
 
-## 3. 比賽當天切換真資料 + Bedrock
+## 3. 更新共享資料 + Bedrock
 
 ```bash
-# 1) 真實資料放進容器掛載的 data/raw/（noon_reports.csv + events.csv）
+# 1) 取得資料團隊核准並推送的版本；大型檔案需另外 git lfs pull。
+cd ~/hullwatch-data
+git pull --ff-only
+git lfs pull
+python3 scripts/update_manifest.py --check
+
+# 2) 重新建立容器，繼續掛載 private data repo 的 data/。
+docker rm -f hw
 docker run -d --name hw -p 8000:8000 \
-  -v ~/data:/srv/hullwatch/data \
+  --mount type=bind,source="$HOME/hullwatch-data/data",target=/srv/hullwatch/data \
   -e HW_LLM_PROVIDER=bedrock \
   -e HW_BEDROCK_MODEL=<環境提供的模型 ID> \
   -e HW_BEDROCK_REGION=us-east-1 \
   hullwatch
-# 2) 欄位名不同 → 只改 app/schema.py 的 COLUMN_ALIASES 後重 build
-# 3) Bedrock KB 可用時追加：-e HW_RETRIEVER=bedrock_kb -e HW_BEDROCK_KB_ID=<id>
+# 3) 欄位名不同 → 只改 app/schema.py 的 COLUMN_ALIASES 後重 build
+# 4) Bedrock KB 可用時追加：-e HW_RETRIEVER=bedrock_kb -e HW_BEDROCK_KB_ID=<id>
 ```
 
 ## 4. 無 Docker 的備援路線
