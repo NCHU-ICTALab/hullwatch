@@ -19,7 +19,7 @@
 | 1. 新 API 公開契約 | 完成 | models、forecast、schedule、fuel-prices、log、noon-report、alerts 測試通過 |
 | 2. Bridge Ops 殼層 | 完成 | Fleet／Diagnose／Decide 三段導航、主題與響應式版面完成 |
 | 3. 真資料主動線 | 完成 | 15 船真 artifact 接線，loading／error／empty state 完整 |
-| 4. 工具功能 | 完成 | AI 顧問右側 push panel、水下判讀、頂部警報通知匣、五油種 ticker、依船舶訂閱與 SES/Discord 明確發送 |
+| 4. 工具功能 | 完成 | AI 顧問右側 push panel、頂部警報通知匣、五油種 ticker、依船舶訂閱與 SES/Discord 明確發送；水下影像判讀已依後續決策移除 |
 | 5. a11y 與部署 | 部分完成 | 鍵盤、focus、表格 fallback、reduced motion、FastAPI mount 與 Docker build stage 完成；瀏覽器與 Docker daemon 待複驗 |
 | 6. Review 與提交 | 完成 | Python 61 tests、前端 build/lint、雙軸 review 均通過並 commit |
 
@@ -195,3 +195,11 @@
 - 甘特歷史事件不再只顯示菱形，恢復為「船殼清洗／螺旋槳拋光／水下檢查／進塢大修」中文名稱。標籤保留 title 與完整 aria-label，視覺名稱使用 12px、可截斷的高對比文字。
 - 為避免文字標籤重疊，`allocateEventLanes` 增加可選 clearance；Speed Loss 維持 14 天規則，甘特事件名稱使用 90 天 lane 重用間隔，軌道高度仍隨 lane 數自動增加。
 - 驗證：新增 API alias 與甘特文字 lane 測試；前端 Vitest **13 passed**、oxlint 0 warnings／0 errors、TypeScript + Vite production build 通過。既有 bundle size warning 仍在。
+
+## 2026-07-15 第十二批：移除水下影像判讀與歸因標籤外置
+
+- 依產品決策暫時移除水下照片判讀：工具選單只保留設定；刪除 React 上傳對話框、前端 `api.inspect`、FastAPI `POST /api/inspect` 與 `app.llm.inspect` 視覺判讀模組。資料集的 UWI 水下檢查事件、事件中文名稱與決策中的「建議先水下檢查」仍保留，避免把維護領域事件與影像 AI 功能混為一談。
+- 船殼／螺旋槳歸因改為純比例色帶，名稱與 pp 數值移到色帶下方的固定雙欄圖例。即使螺旋槳占比只有 1–10%，小色塊也不再承擔文字排版；色帶本身保留完整 `aria-label`，圖例則提供可見文字與色彩標記。
+- 新增 React server-render 回歸測試，覆蓋 9% 螺旋槳窄區段及工具選單不再出現水下判讀；後端測試改為確認 `/api/inspect` 回傳 404。部署畫面因 in-app Browser backend 仍為空，無法在本輪直接檢查 CloudFront；截圖中的英文 `propeller_polish` 與目前 `main` 不一致，部署端需重建並處理 CloudFront 快取。
+- LLM Wiki 航運資料目前只建立待討論範圍，不先匯入內容：候選為船舶／航線與港口、燃油與市場、航運營運術語、船體維護與法規、HullWatch 判讀與客服 SOP。下一步需先確認內部客服最常見問題、可使用來源、更新頻率及不能回答的邊界，再決定首批知識頁。
+- 驗證：rebase 至最新 `origin/main` 後 Python **76 passed**（1 個既有 Starlette deprecation warning）；Vitest **15 passed**；legacy fallback inline script 語法檢查通過；oxlint 0 warnings／0 errors；TypeScript + Vite production build 通過。Vite 既有 bundle size warning 仍在。

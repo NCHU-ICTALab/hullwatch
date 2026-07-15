@@ -118,10 +118,6 @@ h1{font-size:26px;font-weight:600;margin:0;letter-spacing:-.01em}
 .askrow input{flex:1;background:var(--bg2);border:1px solid var(--border2);color:var(--text);border-radius:10px;padding:10px 13px;font-family:var(--font);font-size:13.5px}
 .btn{background:linear-gradient(145deg,var(--accent),#22c48c);color:#04231a;border:0;border-radius:10px;padding:10px 18px;font-weight:600;cursor:pointer;font-size:13.5px}
 .btn:disabled{opacity:.5;cursor:wait}
-.drop{border:1.5px dashed var(--border2);border-radius:var(--r);padding:34px;text-align:center;color:var(--dim);background:var(--panel);cursor:pointer}
-.drop.hover{border-color:var(--accent)}
-.photo{max-height:220px;border-radius:11px;overflow:hidden;display:grid;place-items:center;background:linear-gradient(160deg,#0e2a33,#123b3a 50%,#1a4d3f);color:rgba(255,255,255,.4);font-size:12px;min-height:120px}
-.photo img{max-width:100%;max-height:220px;object-fit:contain}
 .setrow{display:flex;justify-content:space-between;align-items:center;padding:13px 0;border-bottom:1px solid var(--border)}
 .setrow:last-child{border-bottom:0}
 .setrow .st{font-size:13.5px}
@@ -143,7 +139,6 @@ input[type=range]{accent-color:var(--accent);width:100%}
     <div class="nav" data-s="ship" tabindex="0" role="button" aria-label="單船詳情"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M3 15l2 5h14l2-5"/><path d="M5 15V9l7-4 7 4v6"/><path d="M12 5v10"/></svg><span class="lbl">單船詳情</span></div>
     <div class="nav" data-s="roi" tabindex="0" role="button" aria-label="經濟決策"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 20V4"/><path d="M4 20h16"/><path d="M8 16l4-5 3 3 5-7"/></svg><span class="lbl">經濟決策</span></div>
     <div class="nav" data-s="advisor" tabindex="0" role="button" aria-label="AI 顧問"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M21 12a8 8 0 0 1-11.5 7.2L4 20l.9-5.3A8 8 0 1 1 21 12z"/></svg><span class="lbl">AI 顧問</span></div>
-    <div class="nav" data-s="inspect" tabindex="0" role="button" aria-label="水下判讀"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 8h3l2-2h6l2 2h3v11H4z"/><circle cx="12" cy="13" r="3.2"/></svg><span class="lbl">水下判讀</span></div>
     <div class="nav sp" id="themeBtn" tabindex="0" role="button" aria-label="切換主題"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg><span class="lbl">深/淺色切換</span></div>
     <div class="nav" data-s="settings" tabindex="0" role="button" aria-label="系統設定"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2 12h3M19 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1"/></svg><span class="lbl">系統設定</span></div>
   </nav>
@@ -256,29 +251,6 @@ input[type=range]{accent-color:var(--accent);width:100%}
       </div>
     </section>
 
-    <!-- INSPECT -->
-    <section class="screen" id="s-inspect">
-      <div class="eyebrow">UNDERWATER INSPECTION</div>
-      <div class="titlerow"><h1>水下判讀</h1><span class="chip src"><span class="dot"></span><span class="srctxt"></span></span></div>
-      <p class="sub">上傳船殼照片，AI 判附著等級並與數據交叉驗證</p>
-      <div class="two">
-        <div class="card">
-          <h3>上傳船殼影像</h3>
-          <div class="mt" style="display:flex;gap:10px;align-items:center;margin-bottom:12px">
-            <span style="font-size:13px;color:var(--dim)">比對船舶</span>
-            <select id="inspectShip"></select>
-          </div>
-          <div class="drop" id="dropZone">拖曳照片到此，或點擊選擇檔案<br><span style="font-size:12px;color:var(--mute)">視覺模型將判讀附著等級</span></div>
-          <input type="file" id="fileInput" accept="image/*" style="display:none">
-        </div>
-        <div class="card">
-          <h3 id="inspectTitle">判讀結果</h3>
-          <div class="photo mt" id="photoBox">尚未上傳影像</div>
-          <div id="inspectResult"></div>
-        </div>
-      </div>
-    </section>
-
     <!-- SETTINGS -->
     <section class="screen" id="s-settings">
       <div class="eyebrow">SYSTEM SETTINGS</div>
@@ -312,7 +284,6 @@ const API = {
   ship:   id => fetch('/api/ship/' + id).then(r => r.ok ? r.json() : Promise.reject(r.status)),
   roi:    id => fetch('/api/roi' + (id ? '?ship_id=' + id : '')).then(r => r.ok ? r.json() : Promise.reject(r.status)),
   advisor: q => fetch('/api/advisor', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({question:q})}).then(r => r.json()),
-  inspect: (file, shipId) => { const fd = new FormData(); fd.append('file', file); fd.append('ship_id', shipId || ''); return fetch('/api/inspect', {method:'POST', body: fd}).then(r => r.json()); },
 };
 
 /* ---- MOCK 快照（API 同形狀，離線 demo 用） ---- */
@@ -425,8 +396,6 @@ async function renderFleet(){
     ['每月超額碳排', fmt(d.stats.monthly_excess_co2_tons)+'<small>噸 CO₂</small>', '影響 CII 評級'],
   ].map(([k,v,dd])=>`<div class="stat"><div class="k">${k}</div><div class="v">${v}</div><div class="d">${dd}</div></div>`).join('');
   applyFleetFilter();
-  // inspect 頁的船舶下拉
-  document.getElementById('inspectShip').innerHTML = d.ships.map(s=>`<option value="${s.ship_id}">${s.ship_name} (${s.ship_id})</option>`).join('');
 }
 
 /* ---------- 船隊篩選 ---------- */
@@ -677,39 +646,6 @@ async function ask(q){
   turn.scrollIntoView({behavior:'smooth', block:'end'});
 }
 
-/* ---------- inspect ---------- */
-function renderInspectUI(){
-  const drop=document.getElementById('dropZone'), fi=document.getElementById('fileInput');
-  drop.onclick=()=>fi.click();
-  drop.ondragover=e=>{e.preventDefault(); drop.classList.add('hover');};
-  drop.ondragleave=()=>drop.classList.remove('hover');
-  drop.ondrop=e=>{e.preventDefault(); drop.classList.remove('hover'); if(e.dataTransfer.files[0]) doInspect(e.dataTransfer.files[0]);};
-  fi.onchange=()=>{ if(fi.files[0]) doInspect(fi.files[0]); };
-}
-async function doInspect(file){
-  const shipId=document.getElementById('inspectShip').value;
-  const box=document.getElementById('photoBox');
-  box.innerHTML=''; const img=document.createElement('img'); img.src=URL.createObjectURL(file); box.appendChild(img);
-  document.getElementById('inspectResult').innerHTML='<p class="cap mt">判讀中…</p>';
-  document.getElementById('inspectTitle').textContent='判讀結果 · '+shipId;
-  if(!LIVE){
-    document.getElementById('inspectResult').innerHTML='<p class="cap mt">MOCK 模式無法判讀，請切換 LIVE。</p>'; return;
-  }
-  try{
-    const r = await API.inspect(file, shipId);
-    const lvlZh={light:'輕度附著', moderate:'中度附著', heavy:'重度附著'}[r.fouling_level]||esc(r.fouling_level);
-    const badge={light:'b-ok', moderate:'b-watch', heavy:'b-action'}[r.fouling_level]||'b-watch';
-    const cc=r.cross_check||{};
-    document.getElementById('inspectResult').innerHTML=`
-      <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap"><span class="badge ${badge}">${lvlZh}</span><span class="chip">覆蓋率 ${esc(r.coverage_pct)}%</span><span class="chip">mode: ${esc(r.mode)}</span></div>
-      <p class="cap" style="margin-top:12px">${esc((r.organisms||[]).join('、'))}。${esc(r.notes||'')}</p>
-      <div class="kv"><span class="kk">照片 ↔ 數據</span><span class="vv" style="color:${cc.consistent?'var(--accent)':'var(--alert)'}">${cc.consistent===null?'—':cc.consistent?'一致 match':'不一致 mismatch'}</span></div>
-      <p class="cap" style="margin-top:8px">${esc(cc.detail||'')}</p>`;
-  }catch(e){
-    document.getElementById('inspectResult').innerHTML='<p class="cap mt">判讀失敗：'+e+'</p>';
-  }
-}
-
 /* ---------- settings ---------- */
 function renderSettings(){
   const h = HEALTH;
@@ -749,7 +685,7 @@ document.querySelectorAll('.nav').forEach(n=>{
 });
 document.addEventListener('keydown',e=>{
   if(e.target.tagName==='INPUT'||e.target.tagName==='SELECT') return;
-  const m={'1':'fleet','2':'ship','3':'roi','4':'advisor','5':'inspect','6':'settings'};
+  const m={'1':'fleet','2':'ship','3':'roi','4':'advisor','5':'settings'};
   if(m[e.key])nav(m[e.key]);
 });
 
@@ -762,7 +698,7 @@ async function bootData(){
 (async function init(){
   try{ HEALTH = await API.health(); LIVE = !!HEALTH.artifacts_loaded; }
   catch(e){ LIVE = false; }
-  setSrcChips(); renderAdvisorUI(); renderInspectUI();
+  setSrcChips(); renderAdvisorUI();
   await bootData();
   renderSettings();
 })();

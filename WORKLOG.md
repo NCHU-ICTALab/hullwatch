@@ -7,7 +7,7 @@
 - ✅ **比賽環境探測**（帳號 961190339854 / WSParticipantRole / us-east-1）：
   **Bedrock 全開（121 模型，Sonnet 4.5 可用）**；EC2 乾淨；無 IAM instance profile / S3
 - ✅ **AI 顧問正式上線 agent 模式**：LangGraph × Bedrock Claude Sonnet 4.5，
-  真工具調用＋真數字回答；水下判讀 vision 實測可用（合成藤壺圖 → moderate 45% ＋
+  真工具調用＋真數字回答；水下判讀 vision 曾實測可用（後於 2026-07-15 依產品決策移除；歷史結果為合成藤壺圖 → moderate 45% ＋
   與資料面交叉驗證誠實回報不一致）。修：system prompt 加工具欄位字典防誤讀
 - ✅ **實驗套件**（scripts/run_experiments.py）：窗口結構/錨點資訊集/W1W2 分組/
   五模型比較/隨機 kfold 對照/相似度/5-seed 中位數，本地煙霧測試通過
@@ -84,7 +84,7 @@
 - ✅ **前端**：prototype 改資料驅動（LIVE fetch ↔ MOCK 快照同形狀），Playwright 四頁驗證零 JS 錯誤
 - ✅ **AI 顧問**：LangGraph agent（Bedrock，當天啟用）+ scripted fallback（已驗證，數字與儀表板同源）
 - ✅ **檢索層**：本地 TF-IDF（可跑）↔ Bedrock KB（寫好未測，Learner Lab 不支援）
-- ✅ **水下判讀**：Bedrock 多模態（當天啟用）+ stub（已驗證，與資料面交叉驗證）
+- 🗃️ **水下判讀（歷史驗證）**：Bedrock 多模態 + stub 曾驗證可用，已於 2026-07-15 依產品決策自交付範圍移除
 - ✅ **Optuna**：跨船穩定目標（Mean+0.5·Std per-ship RMSE、時間尾段驗證），3-trial 煙霧測試過
 - ✅ kb/ 種子語料（ISO 19030、清洗經濟學、命題摘要）
 - ✅ 測試：**35 passed**

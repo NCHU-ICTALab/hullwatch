@@ -95,10 +95,4 @@ export const api = {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ question }),
   }),
-  inspect: (shipId: string, file: File) => {
-    const body = new FormData()
-    body.set('ship_id', shipId)
-    body.set('file', file)
-    return request<Record<string, unknown>>('/api/inspect', { method: 'POST', body })
-  },
 }

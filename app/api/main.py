@@ -14,7 +14,6 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from app import config
-from app.llm import inspect as inspect_mod
 from app.llm.advisor import Advisor
 from app.llm.provider import get_chat_model
 from app.llm.retrieval import get_retriever
@@ -279,23 +278,6 @@ def advisor(body: AskBody):
     if app.state.advisor is None:
         raise HTTPException(503, "顧問未初始化")
     return app.state.advisor.ask(body.question)
-
-
-@app.post("/api/inspect")
-async def inspect(file: UploadFile = File(...), ship_id: str = Form("")):
-    data_sl = None
-    if ship_id and app.state.service is not None:
-        try:
-            data_sl = app.state.service.ship_detail(ship_id)["current"]["speed_loss_pct"]
-        except KeyError:
-            pass
-    fmt = (file.content_type or "image/jpeg").split("/")[-1]
-    if fmt == "jpg":
-        fmt = "jpeg"
-    content = await file.read()
-    if len(content) > 8 * 1024 * 1024:
-        raise HTTPException(413, "影像請小於 8MB")
-    return inspect_mod.analyze_hull_image(content, image_format=fmt, data_speed_loss_pct=data_sl)
 
 
 @app.get("/")

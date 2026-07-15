@@ -7,12 +7,9 @@ import {
   ChevronRight,
   CircleGauge,
   Fuel,
-  ImageUp,
-  Menu,
   Moon,
   Pause,
   Play,
-  Settings,
   Ship,
   Sun,
   Upload,
@@ -20,6 +17,7 @@ import {
 } from 'lucide-react'
 import type { EChartsOption } from 'echarts'
 import { api } from './api'
+import { AttributionSplitBar, DashboardToolsMenu } from './components/DiagnosisWidgets'
 import { EChart } from './components/EChart'
 import { MarkdownContent } from './components/MarkdownContent'
 import { advisorWidthBounds, allocateEventLanes, clampAdvisorWidth, cleaningSavings, decisionModelOptions, EVENT_LANE_HEIGHT, fleetShipMatchesFilters, fuelHistoryForGrade, GANTT_EVENT_LABEL_CLEARANCE_DAYS, layoutTrendEventMarkers, maintenanceActionLabel, maintenanceActionPresentation, speedLossMinimumForStatus } from './dashboardLogic'
@@ -44,7 +42,6 @@ import type {
 import './App.css'
 
 type View = 'fleet' | 'diagnose' | 'decide'
-type Tool = 'inspect' | 'settings' | null
 
 const money = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 })
 const number = new Intl.NumberFormat('en-US', { maximumFractionDigits: 1 })
@@ -82,7 +79,7 @@ function App() {
   const [advisorWidth, setAdvisorWidth] = useState(() => clampAdvisorWidth(440, window.innerWidth))
   const [decisionFocusKey, setDecisionFocusKey] = useState(0)
   const [primaryModelBusy, setPrimaryModelBusy] = useState(false)
-  const [tool, setTool] = useState<Tool>(null)
+  const [settingsOpen, setSettingsOpen] = useState(false)
   const [refreshVersion, setRefreshVersion] = useState(0)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -271,7 +268,7 @@ function App() {
           onAlertSelect={markAlert}
           advisorOpen={advisorOpen}
           onAdvisor={() => setAdvisorOpen((open) => !open)}
-          onTool={setTool}
+          onSettings={() => setSettingsOpen(true)}
         />
 
         {error && <div className="error-banner" role="alert"><AlertTriangle size={18} />{error}<button onClick={() => setError('')}>關閉</button></div>}
@@ -329,10 +326,9 @@ function App() {
           ) : <InlineLoading label="載入所選船舶的經濟決策" />)}
         </main>
 
-        <ToolDialog
-          tool={tool}
-          onClose={() => setTool(null)}
-          shipId={selectedShipId}
+        <SettingsDialog
+          open={settingsOpen}
+          onClose={() => setSettingsOpen(false)}
           alerts={alerts}
           fuel={fuel}
           models={models}
@@ -345,7 +341,7 @@ function App() {
   )
 }
 
-function Header({ view, setView, dark, setDark, alerts, alertOpen, onAlert, onAlertClose, onAlertSelect, advisorOpen, onAdvisor, onTool }: {
+function Header({ view, setView, dark, setDark, alerts, alertOpen, onAlert, onAlertClose, onAlertSelect, advisorOpen, onAdvisor, onSettings }: {
   view: View
   setView: (view: View) => void
   dark: boolean
@@ -357,7 +353,7 @@ function Header({ view, setView, dark, setDark, alerts, alertOpen, onAlert, onAl
   onAlertSelect: (alertId: string, shipId: string) => void
   advisorOpen: boolean
   onAdvisor: () => void
-  onTool: (tool: Tool) => void
+  onSettings: () => void
 }) {
   const tabs: { id: View; step: string; zh: string; en: string }[] = [
     { id: 'fleet', step: '①', zh: '總覽', en: 'FLEET' },
@@ -379,13 +375,7 @@ function Header({ view, setView, dark, setDark, alerts, alertOpen, onAlert, onAl
       </nav>
       <div className="header-tools">
         <button id="advisor-trigger" className="advisor-trigger" onClick={onAdvisor} aria-expanded={advisorOpen} aria-controls="advisor-panel"><Bot size={16} />AI 顧問<kbd>⌘/Ctrl I</kbd></button>
-        <details className="tool-menu">
-          <summary><Menu size={16} />工具</summary>
-          <div>
-            <button onClick={() => onTool('inspect')}><ImageUp size={16} />水下判讀</button>
-            <button onClick={() => onTool('settings')}><Settings size={16} />設定</button>
-          </div>
-        </details>
+        <DashboardToolsMenu onSettings={onSettings} />
         <button className="icon-button" onClick={() => setDark(!dark)} aria-pressed={dark}>{dark ? <Sun size={16} /> : <Moon size={16} />}<span>{dark ? '亮色' : '深色'}</span></button>
         <div className="alert-popover-wrap">
           <button id="alert-trigger" className="icon-button" onClick={onAlert} aria-label={`警報通知，${alerts?.unread_count ?? 0} 則未讀`} aria-expanded={alertOpen} aria-controls="alert-popover"><Bell size={16} />警報{Boolean(alerts?.unread_count) && <b>{alerts?.unread_count}</b>}</button>
@@ -573,7 +563,7 @@ function DiagnoseView({ detail, models, forecasts, primaryModel, onPrimaryModelC
         </section>
         <section className="panel attribution-panel">
           <div className="panel-heading"><div><span>FOULING ATTRIBUTION</span><h2>船殼／螺旋槳歸因</h2></div></div>
-          <div className="split-bar" role="img" aria-label={`船殼 ${detail.hull_prop.hull_pp} 個百分點，螺旋槳 ${detail.hull_prop.prop_pp} 個百分點`}><span style={{ width: `${(1 - detail.hull_prop.prop_share) * 100}%` }}>船殼 {detail.hull_prop.hull_pp.toFixed(1)}pp</span><span style={{ width: `${detail.hull_prop.prop_share * 100}%` }}>螺槳 {detail.hull_prop.prop_pp.toFixed(1)}pp</span></div>
+          <AttributionSplitBar attribution={detail.hull_prop} />
           {detail.attribution && <div className="waterfall"><span>乾淨基準<b>{detail.attribution.baseline_tons.toFixed(1)}t</b></span>{detail.attribution.factors.map((factor) => <span key={factor.name} className={factor.is_fouling ? 'fouling' : ''}>{factor.name}<b>{factor.tons > 0 ? '+' : ''}{factor.tons.toFixed(1)}t</b></span>)}<span className="actual">實測<b>{detail.attribution.actual_tons.toFixed(1)}t</b></span></div>}
         </section>
         <section className="panel delay-panel">
@@ -815,9 +805,9 @@ function AlertPopover({ alerts, onClose, onSelect }: { alerts: AlertsResponse | 
   return <section id="alert-popover" className="alert-popover" role="region" aria-labelledby="alert-popover-title"><div className="alert-popover-heading"><div><span>NOTIFICATIONS</span><h2 id="alert-popover-title">警報通知</h2></div><button onClick={closeAndRestoreFocus} aria-label="關閉警報通知"><X size={18} /></button></div><div className="channel-state"><span>站內 ●</span><span>SES {alerts?.channels.ses === 'configured' ? '●' : '○'}</span><span>Discord {alerts?.channels.discord === 'not_configured' ? '○' : '●'}</span></div><div className="alert-scroll">{alerts?.alerts.map((alert) => <button className={`alert-item ${alert.read ? 'read' : ''}`} key={alert.id} onClick={() => onSelect(alert.id, alert.ship_id)}><span>{alert.severity === 'critical' ? <AlertTriangle /> : <Bell />}</span><strong>{alert.ship_name}</strong><p>{alert.message}</p><small>{alert.created_at}</small></button>)}{!alerts?.alerts.length && <div className="empty-state compact"><CheckCircle2 />目前沒有警報</div>}</div><p className="alert-popover-note">即時警報保留在介面通知匣；Email／Discord 訂閱可在設定中依船隻管理。</p></section>
 }
 
-function ToolDialog({ tool, onClose, shipId, alerts, fuel, models, onModelsChanged, onReportsImported }: { tool: Tool; onClose: () => void; shipId: string; alerts: AlertsResponse | null; fuel: FuelPriceResponse | null; models: ModelInfo[]; onModelsChanged: () => Promise<void>; onReportsImported: () => Promise<void> }) {
-  if (!tool) return null
-  return <div className="dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose() }} onKeyDown={(event) => { if (event.key === 'Escape') onClose() }}><section className={`tool-dialog ${tool === 'settings' ? 'settings-dialog' : ''}`} role="dialog" aria-modal="true" aria-labelledby="tool-title"><div className="drawer-heading"><div><span>HULLWATCH TOOL</span><h2 id="tool-title">{tool === 'inspect' ? '水下判讀' : '系統設定'}</h2></div><button onClick={onClose} aria-label="關閉" autoFocus><X /></button></div>{tool === 'inspect' && <InspectTool shipId={shipId} />}{tool === 'settings' && <SettingsTool alerts={alerts} fuel={fuel} models={models} onModelsChanged={onModelsChanged} onReportsImported={onReportsImported} />}</section></div>
+function SettingsDialog({ open, onClose, alerts, fuel, models, onModelsChanged, onReportsImported }: { open: boolean; onClose: () => void; alerts: AlertsResponse | null; fuel: FuelPriceResponse | null; models: ModelInfo[]; onModelsChanged: () => Promise<void>; onReportsImported: () => Promise<void> }) {
+  if (!open) return null
+  return <div className="dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose() }} onKeyDown={(event) => { if (event.key === 'Escape') onClose() }}><section className="tool-dialog settings-dialog" role="dialog" aria-modal="true" aria-labelledby="tool-title"><div className="drawer-heading"><div><span>HULLWATCH TOOL</span><h2 id="tool-title">系統設定</h2></div><button onClick={onClose} aria-label="關閉" autoFocus><X /></button></div><SettingsTool alerts={alerts} fuel={fuel} models={models} onModelsChanged={onModelsChanged} onReportsImported={onReportsImported} /></section></div>
 }
 
 function AdvisorPanel({ open, shipId, width, minWidth, maxWidth, onResize, onClose }: { open: boolean; shipId: string; width: number; minWidth: number; maxWidth: number; onResize: (width: number) => void; onClose: () => void }) {
@@ -875,13 +865,6 @@ function AdvisorPanel({ open, shipId, width, minWidth, maxWidth, onResize, onClo
     <div className="advisor-thread" aria-live="polite">{messages.length === 0 && <div className="advisor-welcome"><Bot size={28} /><strong>從船隊資料開始提問</strong><p>顧問回答會保留在這次瀏覽的對話中，並附上可用的資料來源。</p></div>}{messages.map((message, index) => <div className="advisor-exchange" key={`${message.question}-${index}`}><div className="advisor-question"><span>你</span><p>{message.question}</p></div><article className="advisor-answer"><span>{message.answer.mode.toUpperCase()} MODE</span><MarkdownContent content={message.answer.answer} />{message.answer.citations.length > 0 && <small>來源：{message.answer.citations.join('、')}</small>}</article></div>)}</div>
     <form className="advisor-composer" onSubmit={submit}><label htmlFor="advisor-question">詢問船隊資料</label><textarea id="advisor-question" ref={inputRef} value={question} onChange={(event) => setQuestion(event.target.value)} rows={3} placeholder="例如：哪艘船應優先安排清洗？" /><button className="primary-action" disabled={busy || !question.trim()}>{busy ? '查詢資料中…' : '送出問題'}</button></form>
   </aside>
-}
-
-function InspectTool({ shipId }: { shipId: string }) {
-  const [result, setResult] = useState<Record<string, unknown> | null>(null)
-  const [busy, setBusy] = useState(false)
-  const submit = async (event: FormEvent<HTMLFormElement>) => { event.preventDefault(); const file = new FormData(event.currentTarget).get('image'); if (!(file instanceof File) || file.size === 0) return; setBusy(true); try { setResult(await api.inspect(shipId, file)) } finally { setBusy(false) } }
-  return <form className="tool-body" onSubmit={submit}><UploadZone name="image" accept="image/jpeg,image/png" icon={<ImageUp size={36} />} title="船殼水下照片" hint="JPEG / PNG，最大 8MB" /><button className="primary-action" disabled={busy}>{busy ? 'Bedrock 判讀中…' : '開始判讀'}</button>{result && <pre className="inspection-result">{JSON.stringify(result, null, 2)}</pre>}</form>
 }
 
 function UploadZone({ name, accept, icon, title, hint }: { name: string; accept: string; icon: ReactNode; title: string; hint: string }) {

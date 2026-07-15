@@ -43,20 +43,20 @@
   <text x="700" y="128" fill="#E9BC63" font-size="13" font-weight="600">服務層（EC2 / ECS 容器）</text>
   <rect x="700" y="142" width="200" height="44" rx="8" fill="#201a0e" stroke="#4a3f26"/>
   <text x="710" y="161" fill="#e9eef4" font-size="12.5">FastAPI 單體</text>
-  <text x="710" y="178" fill="#93a1b1" font-size="11">fleet / ship / roi / advisor / inspect</text>
+  <text x="710" y="178" fill="#93a1b1" font-size="11">fleet / ship / roi / advisor / alerts</text>
   <rect x="700" y="194" width="200" height="58" rx="8" fill="#201a0e" stroke="#4a3f26"/>
   <text x="710" y="213" fill="#e9eef4" font-size="12.5">AI 顧問（LangGraph 工具迴圈）</text>
   <text x="710" y="230" fill="#93a1b1" font-size="11">唯讀工具：顧問數字＝儀表板數字</text>
   <text x="710" y="245" fill="#93a1b1" font-size="11">scripted fallback（demo 保命）</text>
   <rect x="700" y="260" width="200" height="40" rx="8" fill="#201a0e" stroke="#4a3f26"/>
-  <text x="710" y="278" fill="#e9eef4" font-size="12.5">水下照片判讀（視覺模型）</text>
-  <text x="710" y="293" fill="#93a1b1" font-size="11">照片 ↔ 數據交叉驗證</text>
+  <text x="710" y="278" fill="#e9eef4" font-size="12.5">通知與訂閱發送</text>
+  <text x="710" y="293" fill="#93a1b1" font-size="11">站內通知 / SES / Discord</text>
   <rect x="700" y="308" width="200" height="40" rx="8" fill="#201a0e" stroke="#4a3f26"/>
   <text x="710" y="326" fill="#e9eef4" font-size="12.5">檢索層（可切換）</text>
   <text x="710" y="341" fill="#93a1b1" font-size="11">Bedrock KB ↔ 本地 TF-IDF</text>
   <rect x="700" y="356" width="200" height="56" rx="8" fill="#12100a" stroke="#4a3f26" stroke-dasharray="4 3"/>
   <text x="710" y="375" fill="#E9BC63" font-size="12" font-weight="600">Amazon Bedrock（Claude）</text>
-  <text x="710" y="391" fill="#93a1b1" font-size="11">顧問推理 + 多模態判讀</text>
+  <text x="710" y="391" fill="#93a1b1" font-size="11">顧問推理 + Wiki 知識檢索</text>
   <text x="710" y="405" fill="#93a1b1" font-size="11">KB：ISO 19030 / 清洗經濟學</text>
 
   <!-- ============ 前端 ============ -->
@@ -67,10 +67,10 @@
     <rect x="990" y="182" width="150" height="32" rx="8" fill="#1d1016" stroke="#42222e"/><text x="1000" y="203">單船 Speed Loss 趨勢</text>
     <rect x="990" y="222" width="150" height="32" rx="8" fill="#1d1016" stroke="#42222e"/><text x="1000" y="243">經濟決策 What-if</text>
     <rect x="990" y="262" width="150" height="32" rx="8" fill="#1d1016" stroke="#42222e"/><text x="1000" y="283">AI 顧問（白話問答）</text>
-    <rect x="990" y="302" width="150" height="32" rx="8" fill="#1d1016" stroke="#42222e"/><text x="1000" y="323">水下判讀</text>
+    <rect x="990" y="302" width="150" height="32" rx="8" fill="#1d1016" stroke="#42222e"/><text x="1000" y="323">設定與通知管理</text>
   </g>
-  <text x="990" y="360" fill="#93a1b1" font-size="11">單檔 HTML · 同源零 CORS</text>
-  <text x="990" y="376" fill="#93a1b1" font-size="11">LIVE ↔ MOCK 一鍵切換</text>
+  <text x="990" y="360" fill="#93a1b1" font-size="11">React + Vite · FastAPI 同源</text>
+  <text x="990" y="376" fill="#93a1b1" font-size="11">RWD + a11y 資料表 fallback</text>
 
   <!-- ============ 箭頭 ============ -->
   <line x1="280" y1="190" x2="330" y2="190" stroke="#5d6b7b" stroke-width="1.6" marker-end="url(#ar)"/>

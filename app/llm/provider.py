@@ -22,12 +22,3 @@ def get_chat_model():
             max_tokens=1500,
         )
     return None
-
-
-def get_bedrock_runtime():
-    """多模態判讀用的 bedrock-runtime client；stub 模式回傳 None。"""
-    if config.LLM_PROVIDER == "bedrock":
-        import boto3
-
-        return boto3.client("bedrock-runtime", region_name=config.BEDROCK_REGION)
-    return None

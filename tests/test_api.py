@@ -415,12 +415,14 @@ def test_advisor_ship_cost(client):
     assert ship["ship_name"] in r["answer"] or "US$" in r["answer"]
 
 
-def test_inspect_stub(client):
-    ship_id = client.get("/api/fleet").json()["ships"][0]["ship_id"]
+def test_underwater_image_interpretation_is_not_exposed(client):
     r = client.post("/api/inspect", files={"file": ("hull.jpg", b"\xff\xd8fakejpeg", "image/jpeg")},
-                    data={"ship_id": ship_id})
-    assert r.status_code == 200
-    body = r.json()
-    assert body["mode"] == "stub"
-    assert body["fouling_level"] in {"light", "moderate", "heavy"}
-    assert body["cross_check"]["consistent"] is True  # stub 從資料面推，必一致
+                    data={"ship_id": "S1"})
+    assert r.status_code == 404
+
+
+def test_legacy_frontend_does_not_expose_underwater_image_interpretation():
+    html = (config.LEGACY_FRONTEND_DIR / "index.html").read_text(encoding="utf-8")
+
+    assert "水下判讀" not in html
+    assert "/api/inspect" not in html
