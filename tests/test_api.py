@@ -415,6 +415,35 @@ def test_advisor_ship_cost(client):
     assert ship["ship_name"] in r["answer"] or "US$" in r["answer"]
 
 
+def test_advisor_ten_demo_questions_hit_their_required_answer_terms(client):
+    ship = client.get("/api/fleet").json()["ships"][0]
+    cases = [
+        ("目前全船隊哪些船需要優先處置？請比較 Speed Loss 與每日超額成本。", ["Speed Loss", "US$"]),
+        (f"{ship['ship_id']} 現在的 Speed Loss、狀態與每日超額成本是多少？", ["Speed Loss", "US$"]),
+        (f"{ship['ship_id']} 建議做船殼清洗還是螺旋槳拋光？依據是什麼？", [ship["ship_id"], "建議"]),
+        ("密切留意與立即處置的 Speed Loss 標準是什麼？", ["5%", "10%"]),
+        ("PP、UWC、UWI 與 DD 有什麼差別？哪些會改善效能？", ["UWI", "不會改善"]),
+        ("Speed Loss 是怎麼計算的？符合 ISO 19030 嗎？", ["ISO 19030", "乾淨基準"]),
+        ("每月超額成本與超額碳排怎麼計算？單位是什麼？", ["US$", "CO₂"]),
+        ("市場行情多久更新一次？決策情境價會改寫行情嗎？", ["6 小時", "24 小時"]),
+        ("目前有哪些模型？油耗預測與 Speed Loss 模型分別用在哪裡？", ["P0", "Speed Loss"]),
+        ("正午日報需要哪些欄位？STW、SOG 與風級怎麼解讀？", ["STW", "SOG"]),
+    ]
+
+    for question, expected_terms in cases:
+        response = client.post("/api/advisor", json={"question": question})
+        assert response.status_code == 200
+        body = response.json()
+        assert body["mode"] == "scripted"
+        assert body["citations"]
+        answer = body["answer"]
+        assert all(term in answer for term in expected_terms), (question, answer)
+    cost_answer = client.post("/api/advisor", json={"question": cases[6][0]}).json()["answer"]
+    assert "30 天" in cost_answer and "不是帳務實際月份" in cost_answer
+    model_answer = client.post("/api/advisor", json={"question": cases[8][0]}).json()["answer"]
+    assert "尚未完成" in model_answer and "no-action／UWC／PP" in model_answer
+
+
 def test_underwater_image_interpretation_is_not_exposed(client):
     r = client.post("/api/inspect", files={"file": ("hull.jpg", b"\xff\xd8fakejpeg", "image/jpeg")},
                     data={"ship_id": "S1"})

@@ -125,10 +125,24 @@ class Advisor:
         ship = self._match_ship(question)
         if any(w in question for w in ["優先", "先洗", "哪幾艘", "排程"]):
             return self._scripted_priority()
+        if ship is not None and any(w in question for w in ["建議做", "船殼清洗", "螺旋槳拋光"]):
+            return self._scripted_ship_action(ship)
         if ship is not None and any(w in question for w in ["成本", "多少", "錢", "花費"]):
             return self._scripted_ship_cost(ship)
-        if "門檻" in question or "30 天" in q or "30天" in q:
+        if any(w in question for w in ["門檻", "標準", "密切留意", "立即處置"]) or "30 天" in q or "30天" in q:
             return self._scripted_threshold()
+        if any(w in q for w in ["uwc", "uwi", "pp、", "dd ", "維護動作"]):
+            return self._scripted_maintenance_actions()
+        if "speed loss" in q and any(w in question for w in ["計算", "ISO", "定義"]):
+            return self._scripted_speed_loss()
+        if "每月" in question and ("碳排" in question or "超額成本" in question):
+            return self._scripted_cost_carbon()
+        if any(w in question for w in ["市場行情", "情境價", "多久更新", "油價更新"]):
+            return self._scripted_fuel_market()
+        if "模型" in question:
+            return self._scripted_models()
+        if "正午日報" in question or "stw" in q or "sog" in q:
+            return self._scripted_noon_report()
         return self._scripted_priority()  # 預設給最有行動價值的答案
 
     def _match_ship(self, question: str):
@@ -145,7 +159,7 @@ class Advisor:
         ov = self._tool_fleet()
         act = [s for s in ov["ships"] if s["status"] == "action"]
         watch = [s for s in ov["ships"] if s["status"] == "watch"]
-        lines = []
+        lines = ["排序依據是各船 Speed Loss、越過門檻時間與每日超額成本。"]
         if act:
             names = "、".join(f"{s['ship_name']}（Speed Loss {s['speed_loss_pct']}%，"
                               f"每日多燒 {_fmt_usd(s['excess_cost_per_day'])}）" for s in act[:3])
@@ -161,6 +175,34 @@ class Advisor:
         return {"mode": "scripted",
                 "steps": ["get_fleet_status()", "compute_roi()", "retrieve_knowledge(清洗排程)"],
                 "answer": " ".join(lines), "citations": self._cites("清洗 優先 排程 門檻")}
+
+    def _scripted_ship_action(self, ship) -> dict:
+        schedule = self.service.maintenance_schedule()
+        recommendation = next(
+            (item for item in schedule["recommendations"] if item["ship_id"] == ship.ship_id),
+            None,
+        )
+        detail = self._tool_ship(ship.ship_id)
+        hull = detail["hull_prop"]["hull_pp"]
+        prop = detail["hull_prop"]["prop_pp"]
+        if recommendation is None:
+            answer = f"{ship.ship_id} 目前沒有可用的維護建議，請先確認排程資料。"
+            steps = [f"get_ship_detail({ship.ship_id})"]
+        else:
+            action = recommendation["action"]
+            answer = (
+                f"{ship.ship_id} 的唯讀系統建議為 {action}；目前估計船殼歸因 {hull}pp、"
+                f"螺旋槳歸因 {prop}pp，建議窗口為 {recommendation['window_start']} 至 "
+                f"{recommendation['window_end']}。這是依 180 天淨效益比較產生的建議，"
+                "仍需港口規範、船期與工程檢查確認後才能執行。"
+            )
+            steps = [f"get_ship_detail({ship.ship_id})", "get_maintenance_schedule()"]
+        return {
+            "mode": "scripted",
+            "steps": steps,
+            "answer": answer,
+            "citations": self._cites("PP UWC 維護建議 船殼 螺旋槳"),
+        }
 
     def _scripted_ship_cost(self, ship) -> dict:
         roi = self._tool_roi(ship.ship_id)["target"]
@@ -185,8 +227,105 @@ class Advisor:
             names = "、".join(
                 f"{s['ship_name']}（{'已超過' if s['days_to_threshold'] == 0 else '約 ' + str(s['days_to_threshold']) + ' 天'}）"
                 for s in soon)
-            ans = f"未來 30 天內會達到 {ov['stats']['threshold_pct']}% 門檻的船：{names}。"
+            forecast = f"未來 30 天內會達到 {ov['stats']['threshold_pct']}% 門檻的船：{names}。"
         else:
-            ans = "未來 30 天內沒有船會越過清洗門檻。"
+            forecast = "未來 30 天內沒有船會越過清洗門檻。"
+        watch_threshold = ov["stats"].get("watch_threshold_pct", 5)
+        action_threshold = ov["stats"]["threshold_pct"]
+        watch_label = f"{watch_threshold:g}"
+        action_label = f"{action_threshold:g}"
+        ans = (
+            f"狀態標準是：正常低於 {watch_label}%；密切留意為 {watch_label}%–"
+            f"小於 {action_label}%，或預估 60 天內達 {action_label}%；立即處置為 "
+            f"{action_label}% 以上。{forecast}"
+        )
         return {"mode": "scripted", "steps": ["get_fleet_status()", "外推各船結垢趨勢"],
                 "answer": ans, "citations": self._cites("門檻 speed loss 預測")}
+
+    def _scripted_maintenance_actions(self) -> dict:
+        answer = (
+            "PP 是螺旋槳拋光；UWC 是水下船殼清洗；UWI 是水下檢查；DD 是進乾塢大修。"
+            "PP、UWC 與 DD 有實體介入，通常可改善對應部位效能；UWI 只檢查、不清洗，"
+            "因此不會改善 Speed Loss，也不應重置乾淨基準。"
+        )
+        return {
+            "mode": "scripted",
+            "steps": ["retrieve_knowledge(PP UWC UWI DD)"],
+            "answer": answer,
+            "citations": self._cites("PP UWC UWI DD 維護動作"),
+        }
+
+    def _scripted_speed_loss(self) -> dict:
+        answer = (
+            "Speed Loss 是在相同功率條件下，乾淨基準預期船速與實測船速的百分比差。"
+            "HullWatch 採 ISO 19030 的基準法精神，以每艘船最近清潔後的乾淨基準追蹤趨勢；"
+            "目前是營運決策指標，不宣稱已完成第三方 ISO 19030 認證。"
+        )
+        return {
+            "mode": "scripted",
+            "steps": ["retrieve_knowledge(ISO 19030 Speed Loss)"],
+            "answer": answer,
+            "citations": self._cites("ISO 19030 Speed Loss 乾淨基準"),
+        }
+
+    def _scripted_cost_carbon(self) -> dict:
+        stats = self._tool_fleet()["stats"]
+        answer = (
+            "固定 30 天情境的超額成本估算，是全船隊每日超額燃油成本合計乘以 30，"
+            "單位為 US$／30 天；目前模型估算約 "
+            + _fmt_usd(stats["monthly_excess_cost_usd"]) + "／30 天。"
+            "固定 30 天情境的超額碳排估算，是超額燃油量乘燃油排放係數再乘以 30，"
+            f"單位為 tCO₂／30 天；目前模型估算約 {stats['monthly_excess_co2_tons']} tCO₂／30 天。"
+            "這不是帳務實際月份或法規申報值。"
+        )
+        return {
+            "mode": "scripted",
+            "steps": ["get_fleet_status()", "retrieve_knowledge(成本 碳排 公式)"],
+            "answer": answer,
+            "citations": self._cites("超額成本 碳排 CO2 公式"),
+        }
+
+    def _scripted_fuel_market(self) -> dict:
+        market = self.service.fuel_prices()
+        refresh = market.get("refresh_interval_hours", 6)
+        stale = market.get("stale_after_hours", 24)
+        answer = (
+            f"市場行情不是持續串流：後端快取 {refresh} 小時，超過後要等下一次 API 請求才嘗試更新；"
+            f"來源時間超過 {stale} 小時會標示資料延遲。前端目前在進入或重新載入頁面時請求，"
+            "不會自動每 6 小時輪詢。決策情境價只是 What-if 輸入，不會改寫行情或來源。"
+        )
+        return {
+            "mode": "scripted",
+            "steps": ["get_fuel_market_status()"],
+            "answer": answer,
+            "citations": ["HullWatch fuel market configuration"],
+        }
+
+    def _scripted_models(self) -> dict:
+        registry = self.service.model_registry()
+        names = "、".join(model["name"] for model in registry["models"])
+        answer = (
+            "P0 Fuel 102 ensemble 用來預測主機全速每日油耗 DailyFOC，供競賽客觀評分；"
+            f"Dashboard 的 {names} 用來比較與預測 Speed Loss 趨勢。兩類模型的目標不同，"
+            "不能把 Speed Loss 趨勢模型當成油耗 P0 權重。目前尚未完成由同一 P0 模型執行 "
+            "no-action／UWC／PP 的反事實整合流程。"
+        )
+        return {
+            "mode": "scripted",
+            "steps": ["get_model_registry()", "retrieve_knowledge(P0 Speed Loss 模型)"],
+            "answer": answer,
+            "citations": ["HullWatch model registry", *self._cites("P0 Speed Loss 模型")],
+        }
+
+    def _scripted_noon_report(self) -> dict:
+        answer = (
+            "目前 CSV 匯入欄位是 ship_id、report_date、avg_speed、daily_foc、wind_scale、"
+            "full_speed_hours。STW 是相對水速，較適合船體效能分析；SOG 是對地速度，會受海流影響；"
+            "風級使用 Beaufort scale，良好天氣篩選目前要求風力不高於 4 級且全速航行至少 22 小時。"
+        )
+        return {
+            "mode": "scripted",
+            "steps": ["retrieve_knowledge(正午日報 STW SOG Beaufort)"],
+            "answer": answer,
+            "citations": self._cites("正午日報 STW SOG 風級"),
+        }

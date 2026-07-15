@@ -232,3 +232,11 @@
 - 建立共用 `formatUsd`，Fleet、單船診斷、延遲成本、ROI、建議詳情、甘特、資料表、油價卡、圖表 tooltip／座標軸與 ticker 全部顯示 `US$`，並依情境補 `／日`、`／月`、`／30 天` 或 `／mt`。
 - 油價真實刷新語意確認：前端目前只在頁面載入時呼叫一次 `/api/fuel-prices`；後端收到請求時，若 cache 未滿 6 小時直接回 cached，滿 6 小時才嘗試 Ship & Bunker → USDA → Yahoo proxy，來源或快取超過 24 小時標 stale。它不是背景即時串流；開著頁面不會自動每 6 小時 polling，需重新載入或再次觸發 API 請求。
 - 驗證：Vitest **28 passed**、oxlint 0 warnings／0 errors、TypeScript + Vite production build 通過；整合遠端最新通知功能後 Python **82 passed**（1 個既有 Starlette deprecation warning）；private Wiki **10 tests passed**、34 pages validator 綠、39 shared files manifest 綠。品牌 PNG 依 private repo 規範改由 Git LFS 追蹤。Vite 既有大 chunk warning仍在；in-app Browser backend 仍為空，loading icon 保留本機人工目視複驗。
+
+## 2026-07-15 第十六批：純品牌圖示與 AI 客服 10 題雙層命中
+
+- 使用者實測確認 loading 圖示仍被截斷。重新檢查原始 PNG 後發現它不是純 icon，而是包含下方 `Web icon` 字樣的展示 mockup；第十五批靠放大與負位移裁切的判斷不足。將來源上半部 O／i／驚嘆號輪廓固定描成不依賴系統字型的 SVG paths，以無 caption 的正方形 `oi-hullwatch-symbol.svg` 取代 public／private 舊 PNG。Header 與 loading 都以 `width/height: 100%`、`object-fit: contain` 顯示，不再有裁切參數或 CDN 舊檔名問題。
+- AI 顧問加入 10 個橫向可捲動的建議提問短按鈕；完整問題放在 `aria-label` 與 `title`，點擊會填入並聚焦輸入框，仍由使用者確認送出。問題涵蓋清洗優先序、單船現況與動作、門檻、維護代碼、Speed Loss、成本碳排、油價更新、模型與正午日報。
+- 新增 `/api/advisor` 10 題實際回答回歸測試，並擴充 scripted fallback 的對應回答。Bedrock 未啟用或 agent 失敗時，不再把維護代碼、油價或模型問題錯誤回成清洗優先序；回答仍明確屬 template，不冒充 LLM。
+- private Wiki 新增 `evals/customer-support-golden.json` 與 `wiki_context.py evaluate`，以與 UI 對齊的 10 題驗證四頁 context 預算內的預期來源與必要回答詞，目前 **10/10（100%）**。油價題首次揭露 Wiki 缺少 6 小時快取／24 小時 stale 與 request-driven 更新語意，已補入以 raw API snapshot 與 commit-pinned code snapshot 為來源的 FAQ。
+- 驗證：Vitest **31 passed**、oxlint 0 warnings／0 errors、TypeScript + Vite production build 通過；Python **83 passed**（1 個既有 Starlette deprecation warning）；private tests **11 passed**、Wiki **10/10**、34 pages validator、39 shared files manifest 全綠。Vite 既有大 chunk warning仍在；in-app Browser backend 為空，SVG 靜態結構與無裁切回歸已驗證，完整 loading 實畫面仍需本機目視。

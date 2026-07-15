@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">Oi! Hullwatch</title>
+  <desc id="desc">深藍色 Oi 驚嘆號置於白色圓角方形中的品牌圖示</desc>
+  <defs>
+    <linearGradient id="surface" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#f7f8fa"/>
+    </linearGradient>
+  </defs>
+  <rect x="18" y="18" width="476" height="476" rx="112" fill="url(#surface)" stroke="#d7dde3" stroke-width="8"/>
+  <g fill="#061d3b">
+    <path fill-rule="evenodd" d="M182 151c-77 0-134 58-134 140s57 140 134 140 134-58 134-140-57-140-134-140Zm0 78c34 0 57 25 57 62s-23 62-57 62-57-25-57-62 23-62 57-62Z"/>
+    <circle cx="346" cy="184" r="29"/>
+    <path d="M318 230h56v178h-56z"/>
+    <path d="M402 154h66l-15 166h-39z"/>
+    <circle cx="435" cy="382" r="31"/>
+  </g>
+</svg>

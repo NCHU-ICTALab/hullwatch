@@ -20,6 +20,7 @@ import { BrandIdentity } from './components/BrandIdentity'
 import { AttributionSplitBar, DashboardToolsMenu } from './components/DiagnosisWidgets'
 import { EChart } from './components/EChart'
 import { MarkdownContent } from './components/MarkdownContent'
+import { AdvisorSuggestions } from './components/AdvisorSuggestions'
 import { FleetScheduleDisclosure, StatusFilterButtons, WorkflowSteps, type StatusFilterOption } from './components/WorkflowControls'
 import { advisorWidthBounds, ALERT_AUTO_OPEN_ON_ARRIVAL, allocateEventLanes, clampAdvisorWidth, cleaningSavings, decisionModelOptions, EVENT_LANE_HEIGHT, fleetShipMatchesFilters, formatUsd, fuelHistoryForGrade, GANTT_EVENT_LABEL_CLEARANCE_DAYS, layoutTrendEventMarkers, maintenanceActionLabel, maintenanceActionPresentation, resolveSelectedShipId, scheduleForSelectedShip, speedLossMinimumForStatus } from './dashboardLogic'
 import type {
@@ -861,6 +862,7 @@ function AdvisorPanel({ open, shipId, width, minWidth, maxWidth, onResize, onClo
     />
     <div className="advisor-heading"><div><span>AI COPILOT</span><h2 id="advisor-title">AI 顧問</h2><small>目前船舶情境：{shipId || '全船隊'}</small></div><button onClick={closeAndRestoreFocus} aria-label="關閉 AI 顧問"><X /></button></div>
     <div className="advisor-context"><Bot size={17} /><span>可詢問風險排序、維護建議與決策依據</span><kbd>Esc</kbd></div>
+    <AdvisorSuggestions shipId={shipId} onSelect={(suggestedQuestion) => { setQuestion(suggestedQuestion); inputRef.current?.focus() }} />
     <div className="advisor-thread" aria-live="polite">{messages.length === 0 && <div className="advisor-welcome"><Bot size={28} /><strong>從船隊資料開始提問</strong><p>顧問回答會保留在這次瀏覽的對話中，並附上可用的資料來源。</p></div>}{messages.map((message, index) => <div className="advisor-exchange" key={`${message.question}-${index}`}><div className="advisor-question"><span>你</span><p>{message.question}</p></div><article className="advisor-answer"><span>{message.answer.mode.toUpperCase()} MODE</span><MarkdownContent content={message.answer.answer} />{message.answer.citations.length > 0 && <small>來源：{message.answer.citations.join('、')}</small>}</article></div>)}</div>
     <form className="advisor-composer" onSubmit={submit}><label htmlFor="advisor-question">詢問船隊資料</label><textarea id="advisor-question" ref={inputRef} value={question} onChange={(event) => setQuestion(event.target.value)} rows={3} placeholder="例如：哪艘船應優先安排清洗？" /><button className="primary-action" disabled={busy || !question.trim()}>{busy ? '查詢資料中…' : '送出問題'}</button></form>
   </aside>

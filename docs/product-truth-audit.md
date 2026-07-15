@@ -56,8 +56,8 @@ ISO 官方對 ISO 19030-1 的公開摘要是：它定義船殼與螺旋槳效能
 | 日報上傳 | 使用者輸入 + 即時推導 | 只改當前 FastAPI process 記憶體中的 scored/fleet 狀態 | 不是持久化資料庫；重啟即消失，且只用既有基準模型推論 |
 | 警報 | 規則 | 讀上述狀態門檻，in-app read state 也只在記憶體 | 不是異常偵測 ML |
 | Email／Discord | 真實整合但需設定 | SES 或 Discord webhook；沒設定會回 `not_configured` | UI 有訂閱功能不等於部署已可送達，須以 send response 驗證 |
-| AI 顧問 | 可真 LLM，也可 stub | `HW_LLM_PROVIDER=bedrock` 才用 Bedrock；預設 `stub`，Bedrock 失敗也會退回 scripted template | 不能只看聊天畫面就宣稱 Bedrock 正在回答；應顯示／截錄 API 的 `mode` |
-| Wiki 檢索 | 可真 Bedrock KB，也可本地 | 預設是本地 TF-IDF；有 KB ID 才使用 Bedrock Knowledge Bases | 本地 TF-IDF 不是 LLM Wiki／Bedrock KB 服務 |
+| AI 顧問 | 可真 LLM，也可 stub | `HW_LLM_PROVIDER=bedrock` 才用 Bedrock；預設 `stub`，Bedrock 失敗也會退回 scripted template；scripted 已用 10 題 API 回歸測試覆蓋 demo 意圖 | 不能只看聊天畫面就宣稱 Bedrock 正在回答；應顯示／截錄 API 的 `mode`；scripted 命中不等於 LLM 品質 |
+| Wiki 檢索 | 可真 Bedrock KB，也可本地 | 預設是本地 TF-IDF；有 KB ID 才使用 Bedrock Knowledge Bases；private Wiki 另有 10 題 provider-neutral 來源／必要詞 hit 測試 | 本地或 lexical 10/10 不是 Bedrock 生成答案的人工語意評分 |
 
 ### 部署 fallback：目前最需要公開標示的風險
 
@@ -226,7 +226,7 @@ HullSL_i=CurrentSL_i\times0.653
 - ROI：立方律 + 線性成長 + 成本掃描。
 - 船殼／螺旋槳比例：事件前後中位數 proxy。
 - 警報：狀態門檻規則。
-- AI 顧問 scripted mode：意圖關鍵字 + 固定模板；不是 LLM。
+- AI 顧問 scripted mode：意圖關鍵字 + 固定模板；目前 10 題 demo API 測試可防止答非所問，但它仍不是 LLM。
 
 ## 7. 與命題兩大產出的逐條比對
 
