@@ -82,3 +82,38 @@ def test_store_ignores_malformed_subscription_records(tmp_path):
     store = NotificationSubscriptionStore(path)
 
     assert store.list_public() == []
+
+
+def test_discord_subscription_with_personal_webhook(tmp_path):
+    discord = FakeDiscordClient()
+    store = NotificationSubscriptionStore(
+        tmp_path / "subscriptions.json",
+        discord_webhook_url="",  # 系統頻道未設定，訂閱自填照樣可用
+        discord_client_factory=lambda: discord,
+    )
+    url = "https://discord.com/api/webhooks/123456789/abcDEF_ghi-JKL"
+    created = store.create("discord", url, ["HW-001"])
+
+    # 遮罩：不外洩完整 webhook，只留尾碼辨識
+    assert url not in json.dumps(store.list_public())
+    assert created["destination_masked"].endswith("-JKL）")
+
+    result = store.send_digest(created["id"], [
+        {"ship_id": "HW-001", "ship_name": "Alpha", "status": "action",
+         "speed_loss_pct": 12.0, "excess_cost_per_day": 9000},
+    ])
+    assert result["delivered"] is True
+    assert discord.calls[0][0] == url  # 寄到訂閱者自己的 webhook
+
+
+def test_discord_rejects_invalid_webhook_and_status_is_self_service(tmp_path):
+    store = NotificationSubscriptionStore(
+        tmp_path / "subscriptions.json",
+        ses_from_email="", discord_webhook_url="",
+    )
+    try:
+        store.create("discord", "https://evil.example/steal", ["HW-001"])
+        raise AssertionError("非 Discord webhook 網址應被拒絕")
+    except ValueError as exc:
+        assert "Discord Webhook" in str(exc)
+    assert store.channel_status() == {"ses": "not_configured", "discord": "self_service"}

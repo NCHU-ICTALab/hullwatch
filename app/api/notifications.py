@@ -16,11 +16,18 @@ import httpx
 from app import config
 
 EMAIL_PATTERN = re.compile(r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
+DISCORD_WEBHOOK_PATTERN = re.compile(
+    r"^https://(?:discord\.com|discordapp\.com)/api/webhooks/\d+/[\w-]+$"
+)
 
 
 def _mask_email(value: str) -> str:
     local, domain = value.split("@", 1)
     return f"{local[:1]}***@{domain}"
+
+
+def _mask_webhook(value: str) -> str:
+    return f"Discord webhook（…{value[-4:]}）"
 
 
 class NotificationSubscriptionStore:
@@ -74,10 +81,14 @@ class NotificationSubscriptionStore:
     def _public(subscription: dict) -> dict:
         channel = subscription["channel"]
         destination = subscription.get("destination") or ""
+        if channel == "email":
+            masked = _mask_email(destination)
+        else:
+            masked = _mask_webhook(destination) if destination else "系統 Discord 頻道"
         return {
             "id": subscription["id"],
             "channel": channel,
-            "destination_masked": _mask_email(destination) if channel == "email" else "系統 Discord 頻道",
+            "destination_masked": masked,
             "ship_ids": list(subscription["ship_ids"]),
             "created_at": subscription["created_at"],
         }
@@ -91,10 +102,14 @@ class NotificationSubscriptionStore:
         normalized_destination = (destination or "").strip()
         if channel == "email" and not EMAIL_PATTERN.fullmatch(normalized_destination):
             raise ValueError("請輸入有效的 Email 收件地址")
+        if channel == "discord" and normalized_destination \
+                and not DISCORD_WEBHOOK_PATTERN.fullmatch(normalized_destination):
+            raise ValueError("請輸入有效的 Discord Webhook URL（https://discord.com/api/webhooks/…）")
         subscription = {
             "id": uuid4().hex,
             "channel": channel,
-            "destination": normalized_destination if channel == "email" else None,
+            # discord：自填 webhook（空值＝沿用系統頻道，向後相容）
+            "destination": normalized_destination or None,
             "ship_ids": list(dict.fromkeys(ship_ids)),
             "created_at": datetime.now(timezone.utc).isoformat(),
         }
@@ -115,7 +130,8 @@ class NotificationSubscriptionStore:
     def channel_status(self) -> dict[str, str]:
         return {
             "ses": "configured" if self.ses_from_email else "not_configured",
-            "discord": "configured" if self.discord_webhook_url else "not_configured",
+            # discord 一律可用：系統 webhook（configured）或訂閱者自填（self_service）
+            "discord": "configured" if self.discord_webhook_url else "self_service",
         }
 
     def send_digest(self, subscription_id: str, ships: list[dict]) -> dict:
@@ -149,11 +165,13 @@ class NotificationSubscriptionStore:
             )
             message_id = response.get("MessageId")
         else:
-            if not self.discord_webhook_url:
+            # 訂閱自填 webhook 優先；留空時退回系統頻道（向後相容）
+            webhook_url = subscription.get("destination") or self.discord_webhook_url
+            if not webhook_url:
                 return {"delivered": False, "status": "not_configured", "ship_count": len(selected)}
             client = self.discord_client_factory()
             try:
-                response = client.post(self.discord_webhook_url, json={"content": message[:2000]})
+                response = client.post(webhook_url, json={"content": message[:2000]})
                 response.raise_for_status()
             finally:
                 close = getattr(client, "close", None)
