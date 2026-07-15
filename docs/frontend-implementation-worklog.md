@@ -163,3 +163,14 @@
 - Fleet KPI 與篩選列補上可見門檻及 60 天預測例外說明；後端政策函式與前端 dashboard behavior 均新增邊界測試。
 - `/api/fleet` 回傳 action、watch 與 watch window policy，前端完全以 API 數值呈現與同步；AWS 透過環境變數覆寫時不會產生前後端門檻漂移。
 - 真實 artifacts 驗證為立即處置 3 艘、密切留意 4 艘、正常 8 艘；完整驗證 Python **71 passed**、Vitest **7 passed**，lint 與 production build 通過。
+
+## 2026-07-15 第九批：內部客服 Wiki 與三段式 RWD
+
+- AI 顧問回答改用 `react-markdown` + `remark-gfm` 安全渲染 CommonMark／GFM；支援標題、清單、強調、連結、程式碼與表格，不啟用 raw HTML。新增 server-render 測試確認常用語法與不安全連結不會成為可執行標記。
+- Fleet Speed Loss 拉桿採 140ms settled filter，停止調整後一次套用船卡結果，並以 `aria-busy` 表示更新中；結果容器會量測並保留舊高度，再平滑縮到新高度。狀態按鈕則同步立即套用正確門檻，避免狀態與延遲下限短暫不一致。全頁固定 scrollbar gutter，減少結果變少時的水平位移。
+- 「最近清潔動作」依資料集字典顯示中文名稱並保留 PP／UWI／UWC／DD 代碼；長名稱使用 compact metric 排版，避免卡片截字。
+- RWD 明確分為桌面 `≥1200px`、平板 `768–1199px`、手機 `≤767px`。桌面 AI 顧問維持 440px push；平板改為 320–380px push 並把剩餘 Dashboard 簡化為單／雙欄；手機改為全寬顧問畫面，不 overlap 主內容。`≤480px` 的 KPI、頁首與控制列再收斂為單欄。
+- 決策頁上方五個油價卡改為可鍵盤操作的 `aria-pressed` 按鈕，點擊後與下拉選單共用 `fuelGrade`，同步切換折線圖、資料表與來源。
+- 「建議詳情 · 唯讀」移到甘特控制與圖表上方，從單船診斷跳轉後更快看到高亮建議。
+- private `hullwatch-data` 新增 `wiki/internal-support-v1` 審查分支：`llm-wiki/raw/` 不可變來源快照、`wiki/index.md` 最小載入入口、追加式 `log.md`、Schema、安全規則、客服流程與首批七頁知識。新增 provider-neutral `scripts/wiki_context.py`，可 validate 或依問題輸出附 source 的 bounded Markdown context，且每次自動先注入 Schema 安全契約；LLM 可維護 branch，但不得自行合併 `main`。
+- 驗證：Wiki **2 個 adapter tests**、實際 query smoke、內部連結、秘密模式與 38 個共享檔 manifest 均通過；前端 Vitest **10 passed**、lint 與 production build 通過。本機 API／Vite 均回應 200。in-app Browser backend 列表仍為空，三 viewport 的肉眼截圖與點擊保留人工複驗。

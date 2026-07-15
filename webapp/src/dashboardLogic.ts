@@ -22,6 +22,23 @@ export function fuelHistoryForGrade(fuel: FuelPriceResponse, grade: string) {
   return fuel.history_by_grade[grade] ?? []
 }
 
+const MAINTENANCE_ACTION_LABELS: Record<string, string> = {
+  PP: '螺旋槳拋光',
+  'UWI+PP': '水下檢查 + 螺旋槳拋光',
+  UWC: '船殼清洗',
+  'UWC+PP': '船殼清洗 + 螺旋槳拋光',
+  DD: '進塢（全面塗裝 + 機械保養）',
+  UWI: '水下檢查（僅拍照，無物理介入）',
+}
+
+export function maintenanceActionLabel(action?: string | null) {
+  const source = action?.trim()
+  if (!source) return '—'
+  const code = source.toUpperCase()
+  const label = MAINTENANCE_ACTION_LABELS[code]
+  return label ? `${label}（${code}）` : source
+}
+
 export function decisionModelOptions(models: ModelInfo[]) {
   return models.filter((model) => model.status !== 'candidate' && model.status !== 'rejected')
 }

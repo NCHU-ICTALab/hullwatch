@@ -109,6 +109,11 @@ export HW_DATA_DIR="$(cd ../hullwatch-data/data && pwd -W)"
 Linux 或 macOS 將 `pwd -W` 改為 `pwd`。`fuel-market-cache.json`、
 `notification-subscriptions.json` 等執行期狀態不會在 data repo 內同步。
 
+內部客服知識庫位於 data repo 的 `llm-wiki/`。`raw/` 保存不可變的
+權威文件快照，`wiki/` 保存可由 LLM 直接載入的繁體中文知識頁；更新採
+獨立 branch／Pull Request 人工審查，不應讓 LLM 直接索引原始航行資料、
+模型權重、通知收件資料或任何憑證。
+
 ## 快速啟動
 
 使用 private data repo 時，先設定資料目錄：

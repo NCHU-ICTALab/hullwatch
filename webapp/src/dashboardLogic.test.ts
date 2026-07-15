@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { allocateEventLanes, cleaningSavings, decisionModelOptions, fleetShipMatchesFilters, fuelHistoryForGrade, layoutTrendEventMarkers, speedLossMinimumForStatus } from './dashboardLogic'
+import { allocateEventLanes, cleaningSavings, decisionModelOptions, fleetShipMatchesFilters, fuelHistoryForGrade, layoutTrendEventMarkers, maintenanceActionLabel, speedLossMinimumForStatus } from './dashboardLogic'
 import type { FuelPriceResponse, ModelInfo } from './types'
 
 describe('dashboard behavior', () => {
@@ -72,5 +72,16 @@ describe('dashboard behavior', () => {
     expect(fleetShipMatchesFilters(forecastWatch, 'watch', 6, 6)).toBe(true)
     expect(fleetShipMatchesFilters(forecastWatch, 'all', 6, 6)).toBe(false)
     expect(fleetShipMatchesFilters(forecastWatch, 'watch', 6.5, 6)).toBe(false)
+  })
+
+  it('presents source maintenance action codes with their Chinese names', () => {
+    expect(maintenanceActionLabel('PP')).toBe('螺旋槳拋光（PP）')
+    expect(maintenanceActionLabel('UWI+PP')).toBe('水下檢查 + 螺旋槳拋光（UWI+PP）')
+    expect(maintenanceActionLabel('UWC')).toBe('船殼清洗（UWC）')
+    expect(maintenanceActionLabel('UWC+PP')).toBe('船殼清洗 + 螺旋槳拋光（UWC+PP）')
+    expect(maintenanceActionLabel('DD')).toBe('進塢（全面塗裝 + 機械保養）（DD）')
+    expect(maintenanceActionLabel('UWI')).toBe('水下檢查（僅拍照，無物理介入）（UWI）')
+    expect(maintenanceActionLabel('unknown')).toBe('unknown')
+    expect(maintenanceActionLabel()).toBe('—')
   })
 })

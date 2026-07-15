@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import {
   AlertTriangle,
   Bell,
@@ -21,7 +21,8 @@ import {
 import type { EChartsOption } from 'echarts'
 import { api } from './api'
 import { EChart } from './components/EChart'
-import { allocateEventLanes, cleaningSavings, decisionModelOptions, EVENT_LANE_HEIGHT, fleetShipMatchesFilters, fuelHistoryForGrade, layoutTrendEventMarkers, speedLossMinimumForStatus } from './dashboardLogic'
+import { MarkdownContent } from './components/MarkdownContent'
+import { allocateEventLanes, cleaningSavings, decisionModelOptions, EVENT_LANE_HEIGHT, fleetShipMatchesFilters, fuelHistoryForGrade, layoutTrendEventMarkers, maintenanceActionLabel, speedLossMinimumForStatus } from './dashboardLogic'
 import type {
   AdvisorResponse,
   AlertsResponse,
@@ -71,6 +72,7 @@ function App() {
   const [fuelScenario, setFuelScenario] = useState(600)
   const [statusFilter, setStatusFilter] = useState<'all' | Status>('all')
   const [slMinimum, setSlMinimum] = useState(0)
+  const [appliedSlMinimum, setAppliedSlMinimum] = useState(0)
   const [dark, setDark] = useState(() => localStorage.getItem('hw-theme') === 'dark')
   const [tickerPaused, setTickerPaused] = useState(false)
   const [alertOpen, setAlertOpen] = useState(false)
@@ -88,6 +90,11 @@ function App() {
     document.documentElement.classList.toggle('dark', dark)
     localStorage.setItem('hw-theme', dark ? 'dark' : 'light')
   }, [dark])
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => setAppliedSlMinimum(slMinimum), 140)
+    return () => window.clearTimeout(timer)
+  }, [slMinimum])
 
   useEffect(() => {
     let active = true
@@ -184,8 +191,8 @@ function App() {
   }, [])
 
   const filteredShips = useMemo(() => fleet?.ships.filter((ship) => (
-    fleetShipMatchesFilters(ship, statusFilter, slMinimum, fleet.stats.watch_threshold_pct)
-  )) ?? [], [fleet, statusFilter, slMinimum])
+    fleetShipMatchesFilters(ship, statusFilter, appliedSlMinimum, fleet.stats.watch_threshold_pct)
+  )) ?? [], [appliedSlMinimum, fleet, statusFilter])
 
   const selectShip = (shipId: string, nextView: View = 'diagnose') => {
     setSelectedShipId(shipId)
@@ -267,6 +274,8 @@ function App() {
               setStatusFilter={setStatusFilter}
               slMinimum={slMinimum}
               setSlMinimum={setSlMinimum}
+              applySlMinimum={setAppliedSlMinimum}
+              filterPending={slMinimum !== appliedSlMinimum}
               onSelect={selectShip}
             />
           )}
@@ -373,7 +382,7 @@ function Header({ view, setView, dark, setDark, alerts, alertOpen, onAlert, onAl
   )
 }
 
-function FleetView({ fleet, fuel, tickerPaused, setTickerPaused, ships, statusFilter, setStatusFilter, slMinimum, setSlMinimum, onSelect }: {
+function FleetView({ fleet, fuel, tickerPaused, setTickerPaused, ships, statusFilter, setStatusFilter, slMinimum, setSlMinimum, applySlMinimum, filterPending, onSelect }: {
   fleet: FleetResponse
   fuel: FuelPriceResponse | null
   tickerPaused: boolean
@@ -383,13 +392,35 @@ function FleetView({ fleet, fuel, tickerPaused, setTickerPaused, ships, statusFi
   setStatusFilter: (value: 'all' | Status) => void
   slMinimum: number
   setSlMinimum: (value: number) => void
+  applySlMinimum: (value: number) => void
+  filterPending: boolean
   onSelect: (shipId: string) => void
 }) {
+  const resultsContentRef = useRef<HTMLDivElement>(null)
+  const [reservedResultsHeight, setReservedResultsHeight] = useState<number | null>(null)
   const statusPolicy = { action: fleet.stats.threshold_pct, watch: fleet.stats.watch_threshold_pct }
   const changeStatus = (status: 'all' | Status) => {
+    const nextMinimum = speedLossMinimumForStatus(status, statusPolicy)
     setStatusFilter(status)
-    setSlMinimum(speedLossMinimumForStatus(status, statusPolicy))
+    setSlMinimum(nextMinimum)
+    applySlMinimum(nextMinimum)
   }
+  useLayoutEffect(() => {
+    const content = resultsContentRef.current
+    if (!content) return
+    const measuredHeight = Math.ceil(content.getBoundingClientRect().height)
+    if (filterPending) {
+      setReservedResultsHeight((current) => current ?? measuredHeight)
+      return
+    }
+    if (reservedResultsHeight === null) return
+    const frame = window.requestAnimationFrame(() => setReservedResultsHeight(measuredHeight))
+    const timer = window.setTimeout(() => setReservedResultsHeight(null), 260)
+    return () => {
+      window.cancelAnimationFrame(frame)
+      window.clearTimeout(timer)
+    }
+  }, [filterPending, reservedResultsHeight, ships])
   const statusLabel = (status: Status) => status === 'action'
     ? `${statusMeta[status].symbol} ${statusMeta[status].label} ≥${number.format(statusPolicy.action)}%`
     : status === 'watch'
@@ -417,11 +448,15 @@ function FleetView({ fleet, fuel, tickerPaused, setTickerPaused, ships, statusFi
         <span className="result-count" aria-live="polite">顯示 {ships.length} / {fleet.stats.n_ships} 艘</span>
         <small className="status-policy-note" id="fleet-status-policy">* 以平滑後 Speed Loss 分級；未達 {number.format(statusPolicy.watch)}% 但預估 {fleet.stats.watch_window_days} 天內達 {number.format(statusPolicy.action)}% 者也列入密切留意。</small>
       </div>
-      <div className="ship-grid">
-        {ships.map((ship) => <ShipCard key={ship.ship_id} ship={ship} onSelect={onSelect} />)}
+      <div className={`fleet-results ${filterPending ? 'is-pending' : ''}`} aria-busy={filterPending} style={{ minHeight: reservedResultsHeight === null ? undefined : `${reservedResultsHeight}px` }}>
+        <div ref={resultsContentRef}>
+          <div className="ship-grid">
+            {ships.map((ship) => <ShipCard key={ship.ship_id} ship={ship} onSelect={onSelect} />)}
+          </div>
+          {ships.length > 0 && <FleetSparkTable ships={ships} />}
+          {ships.length === 0 && <div className="empty-state"><CircleGauge /><strong>沒有符合條件的船舶</strong><span>降低 Speed Loss 下限或切換狀態。</span></div>}
+        </div>
       </div>
-      {ships.length > 0 && <FleetSparkTable ships={ships} />}
-      {ships.length === 0 && <div className="empty-state"><CircleGauge /><strong>沒有符合條件的船舶</strong><span>降低 Speed Loss 下限或切換狀態。</span></div>}
     </section>
   )
 }
@@ -506,7 +541,7 @@ function DiagnoseView({ detail, models, forecasts, primaryModel, onPrimaryModelC
         <Metric label="超額油耗" value={current.excess_foc?.toFixed(1) ?? '—'} unit="t/day" tone="red" spark={detail.kpi_sparks.excess_foc} />
         <Metric label="風級" value={current.wind_scale?.toFixed(0) ?? '—'} unit="Bft" spark={detail.kpi_sparks.wind_scale} />
         <Metric label="距上次清潔" value={`${current.days_since_clean}`} unit="天" spark={detail.kpi_sparks.days_since_clean} />
-        <Metric label="最近清潔動作" value={current.last_event?.type ?? '—'} unit={current.last_event?.date ?? ''} />
+        <Metric label="最近清潔動作" value={maintenanceActionLabel(current.last_event?.type)} unit={current.last_event?.date ?? ''} compact />
         <Metric label="每日超額成本" value={money.format(current.excess_cost_per_day)} tone="red" />
       </div>
       <div className="diagnose-layout">
@@ -612,6 +647,7 @@ function DecideView({ schedule, fuel, roi, selectedShipId, primaryModel, onSelec
       <PageHeading eyebrow="03 / MAINTENANCE DECISION" title="維護排程與經濟決策" subtitle={`未來 ${schedule.horizon_days} 天 · 唯讀系統建議 · 主模型 ${primaryModel}`} />
       <section className="panel schedule-panel">
         <div className="panel-heading"><div><span>RECOMMENDED WINDOWS</span><h2>全船隊清潔建議甘特圖</h2></div><span className="model-basis">過去 {schedule.past_days} 天 · 未來 {schedule.future_days} 天</span></div>
+        {selectedRecommendation && <article id="selected-decision" tabIndex={-1} className={`schedule-detail ${focusKey ? 'focus-highlight' : ''}`} aria-live="polite"><div><span>建議詳情 · 唯讀</span><strong>{selectedRecommendation.ship_name} / {selectedRecommendation.action}</strong></div><p>{selectedRecommendation.window_start}–{selectedRecommendation.window_end}，作業成本 {money.format(selectedRecommendation.action_cost_usd)}，預期回復 <b>{selectedRecommendation.speed_loss_recovery_pp.toFixed(1)}pp SL</b>、每日省 {selectedRecommendation.daily_fuel_saving_tons.toFixed(2)} 噸、每月省 {money.format(selectedRecommendation.monthly_saving_usd)}。若延後，優先遞補：{selectedRecommendation.backfill.ship_name}。{selectedRecommendation.inspection_recommended && <b> 不確定性較高，建議先安排 UWI 檢查。</b>}</p><button onClick={() => onSelect(selectedRecommendation.ship_id, 'diagnose')}>查看單船診斷 <ChevronRight size={15} /></button></article>}
         <div className="gantt-controls">
           <label>排列方式<select value={sortBy} onChange={(event) => setSortBy(event.target.value as typeof sortBy)}><option value="id">船舶 ID</option><option value="name">船名</option><option value="risk">警報風險</option><option value="cost">每日超額成本</option><option value="speed-loss">Speed Loss</option></select></label>
           <label>時間縮放<input type="range" min="1" max="3" step="0.25" value={zoom} onChange={(event) => setZoom(Number(event.target.value))} /><span>{Math.round(zoom * 100)}%</span></label>
@@ -623,7 +659,6 @@ function DecideView({ schedule, fuel, roi, selectedShipId, primaryModel, onSelec
             {sortedRecommendations.map((item) => <GanttRow key={item.ship_id} item={item} timelineStart={schedule.timeline_start} totalDays={timelineDays} todayRatio={todayRatio} dryDock={schedule.dry_docks.find((event) => event.ship_id === item.ship_id)?.date} events={schedule.maintenance_events.filter((event) => event.ship_id === item.ship_id && event.type !== 'DD')} selected={selectedRecommendation?.ship_id === item.ship_id} onOpen={(item) => { setSelectedRecommendation(item); onDecisionShipChange(item.ship_id) }} />)}
           </div>
         </div>
-        {selectedRecommendation && <article id="selected-decision" tabIndex={-1} className={`schedule-detail ${focusKey ? 'focus-highlight' : ''}`} aria-live="polite"><div><span>建議詳情 · 唯讀</span><strong>{selectedRecommendation.ship_name} / {selectedRecommendation.action}</strong></div><p>{selectedRecommendation.window_start}–{selectedRecommendation.window_end}，作業成本 {money.format(selectedRecommendation.action_cost_usd)}，預期回復 <b>{selectedRecommendation.speed_loss_recovery_pp.toFixed(1)}pp SL</b>、每日省 {selectedRecommendation.daily_fuel_saving_tons.toFixed(2)} 噸、每月省 {money.format(selectedRecommendation.monthly_saving_usd)}。若延後，優先遞補：{selectedRecommendation.backfill.ship_name}。{selectedRecommendation.inspection_recommended && <b> 不確定性較高，建議先安排 UWI 檢查。</b>}</p><button onClick={() => onSelect(selectedRecommendation.ship_id, 'diagnose')}>查看單船診斷 <ChevronRight size={15} /></button></article>}
         <details className="data-fallback"><summary>查看排程與維護事件資料表</summary><ScheduleTable items={sortedRecommendations} onSelect={onSelect} /><MaintenanceEventTable schedule={schedule} /></details>
       </section>
       <div className="decision-grid">
@@ -638,7 +673,7 @@ function DecideView({ schedule, fuel, roi, selectedShipId, primaryModel, onSelec
         <section className="panel fuel-panel">
           <div className="panel-heading"><div><span>FUEL MARKET</span><h2>市場行情與決策情境價</h2></div><b className={`market-badge market-${fuel.market_status}`}>{fuel.market_status}</b></div>
           <label className="fuel-grade-select">行情油種<select value={fuelGrade} onChange={(event) => setFuelGrade(event.target.value)}>{Object.keys(fuel.history_by_grade).map((grade) => <option key={grade} value={grade}>{grade}</option>)}</select></label>
-          <div className="fuel-cards">{fuel.prices.map((price) => <article key={price.grade}><span>{price.grade}{price.estimated && <em>EST</em>}</span><strong>${number.format(price.usd_per_ton)}</strong><small>USD / mt</small></article>)}</div>
+          <div className="fuel-cards" role="group" aria-label="選擇行情油種">{fuel.prices.map((price) => <button type="button" key={price.grade} className={price.grade === fuelGrade ? 'selected' : ''} aria-pressed={price.grade === fuelGrade} onClick={() => setFuelGrade(price.grade)}><span>{price.grade}{price.estimated && <em>EST</em>}</span><strong>${number.format(price.usd_per_ton)}</strong><small>USD / mt</small></button>)}</div>
           {fuel.prices.length === 0 && <div className="market-unavailable"><Fuel /><strong>即時行情暫時無法取得</strong><span>ROI 使用上方明確標示的手動情境價。</span></div>}
           {selectedFuelHistory.length > 0 && <EChart option={fuelOption} className="fuel-chart" ariaLabel={`${fuelGrade} 近期價格趨勢`} />}
           <details className="data-fallback"><summary>查看燃油趨勢資料表</summary><div className="table-wrap"><table><thead><tr><th>日期</th><th>{fuelGrade} USD/mt</th><th>來源</th></tr></thead><tbody>{selectedFuelHistory.map((point) => <tr key={point.date}><td>{point.date}</td><td>${point.usd_per_ton.toFixed(2)}</td><td>{point.source}{point.estimated ? '（估算）' : ''}</td></tr>)}</tbody></table></div></details>
@@ -661,8 +696,8 @@ function GanttRow({ item, timelineStart, totalDays, todayRatio, dryDock, events,
   return <button className={`gantt-row ${selected ? 'selected' : ''}`} onClick={() => onOpen(item)} aria-label={`選擇 ${item.ship_name}，建議動作 ${item.action}`}><span className="gantt-name"><b>{item.ship_name}</b><small>{item.ship_id}</small></span><span className="gantt-track" style={{ height: `${laneCount * EVENT_LANE_HEIGHT + 30}px` }}><span className="today-line" style={{ left: `${todayRatio * 100}%` }} aria-hidden="true" />{eventLanes.map(({ event, lane }, index) => { const position = day(event.date); return position >= 0 && position <= totalDays ? <span key={`${event.date}-${event.type}-${index}`} className={event.type === 'DD' ? 'dd-block' : 'event-mark'} title={`${event.date} ${event.type}：${event.notes}`} style={{ left: `${position / totalDays * 100}%`, top: `${lane * EVENT_LANE_HEIGHT + 1}px` }}>{event.type}</span> : null })}<span className={`gantt-bar action-${item.action.replace('+', '-plus-')}`} style={{ left: `${Math.max(0, start / totalDays * 100)}%`, width: `${Math.max(2.5, (end - start) / totalDays * 100)}%` }}>{item.action}</span></span><span className="gantt-impact">+{item.speed_loss_recovery_pp.toFixed(1)}pp<small>{money.format(item.monthly_saving_usd)}/月</small></span></button>
 }
 
-function Metric({ label, value, unit, tone, spark }: { label: string; value: string; unit?: string; tone?: 'teal' | 'amber' | 'red'; spark?: number[] }) {
-  return <article className={`metric ${tone ? `tone-${tone}` : ''}`}><span>{label}</span><strong>{value}</strong>{unit && <small>{unit}</small>}{spark && spark.length > 1 && <Sparkline values={spark} label={`${label}近期趨勢`} />}</article>
+function Metric({ label, value, unit, tone, spark, compact = false }: { label: string; value: string; unit?: string; tone?: 'teal' | 'amber' | 'red'; spark?: number[]; compact?: boolean }) {
+  return <article className={`metric ${tone ? `tone-${tone}` : ''} ${compact ? 'compact-value' : ''}`}><span>{label}</span><strong>{value}</strong>{unit && <small>{unit}</small>}{spark && spark.length > 1 && <Sparkline values={spark} label={`${label}近期趨勢`} />}</article>
 }
 
 function PageHeading({ eyebrow, title, subtitle, badge }: { eyebrow: string; title: string; subtitle: string; badge?: string }) {
@@ -792,7 +827,7 @@ function AdvisorPanel({ open, shipId, onClose }: { open: boolean; shipId: string
       setBusy(false)
     }
   }
-  return <aside id="advisor-panel" className="advisor-panel" aria-hidden={!open} inert={!open} aria-labelledby="advisor-title"><div className="advisor-heading"><div><span>AI COPILOT</span><h2 id="advisor-title">AI 顧問</h2><small>目前船舶情境：{shipId || '全船隊'}</small></div><button onClick={closeAndRestoreFocus} aria-label="關閉 AI 顧問"><X /></button></div><div className="advisor-context"><Bot size={17} /><span>可詢問風險排序、維護建議與決策依據</span><kbd>Esc</kbd></div><div className="advisor-thread" aria-live="polite">{messages.length === 0 && <div className="advisor-welcome"><Bot size={28} /><strong>從船隊資料開始提問</strong><p>顧問回答會保留在這次瀏覽的對話中，並附上可用的資料來源。</p></div>}{messages.map((message, index) => <div className="advisor-exchange" key={`${message.question}-${index}`}><div className="advisor-question"><span>你</span><p>{message.question}</p></div><article className="advisor-answer"><span>{message.answer.mode.toUpperCase()} MODE</span><p>{message.answer.answer}</p>{message.answer.citations.length > 0 && <small>來源：{message.answer.citations.join('、')}</small>}</article></div>)}</div><form className="advisor-composer" onSubmit={submit}><label htmlFor="advisor-question">詢問船隊資料</label><textarea id="advisor-question" ref={inputRef} value={question} onChange={(event) => setQuestion(event.target.value)} rows={3} placeholder="例如：哪艘船應優先安排清洗？" /><button className="primary-action" disabled={busy || !question.trim()}>{busy ? '查詢資料中…' : '送出問題'}</button></form></aside>
+  return <aside id="advisor-panel" className="advisor-panel" aria-hidden={!open} inert={!open} aria-labelledby="advisor-title"><div className="advisor-heading"><div><span>AI COPILOT</span><h2 id="advisor-title">AI 顧問</h2><small>目前船舶情境：{shipId || '全船隊'}</small></div><button onClick={closeAndRestoreFocus} aria-label="關閉 AI 顧問"><X /></button></div><div className="advisor-context"><Bot size={17} /><span>可詢問風險排序、維護建議與決策依據</span><kbd>Esc</kbd></div><div className="advisor-thread" aria-live="polite">{messages.length === 0 && <div className="advisor-welcome"><Bot size={28} /><strong>從船隊資料開始提問</strong><p>顧問回答會保留在這次瀏覽的對話中，並附上可用的資料來源。</p></div>}{messages.map((message, index) => <div className="advisor-exchange" key={`${message.question}-${index}`}><div className="advisor-question"><span>你</span><p>{message.question}</p></div><article className="advisor-answer"><span>{message.answer.mode.toUpperCase()} MODE</span><MarkdownContent content={message.answer.answer} />{message.answer.citations.length > 0 && <small>來源：{message.answer.citations.join('、')}</small>}</article></div>)}</div><form className="advisor-composer" onSubmit={submit}><label htmlFor="advisor-question">詢問船隊資料</label><textarea id="advisor-question" ref={inputRef} value={question} onChange={(event) => setQuestion(event.target.value)} rows={3} placeholder="例如：哪艘船應優先安排清洗？" /><button className="primary-action" disabled={busy || !question.trim()}>{busy ? '查詢資料中…' : '送出問題'}</button></form></aside>
 }
 
 function InspectTool({ shipId }: { shipId: string }) {
