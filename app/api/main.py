@@ -9,7 +9,7 @@ from datetime import date
 from typing import Literal
 
 import pandas as pd
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -69,9 +69,19 @@ def _svc(app_state) -> "FleetService":
 
 @app.get("/api/health")
 def health():
+    service = app.state.service
     return {
         "status": "ok",
-        "artifacts_loaded": app.state.service is not None,
+        "artifacts_loaded": service is not None,
+        "speed_loss_source_ready": bool(
+            service is not None and service.speed_loss_source_ready
+        ),
+        "speed_loss_source_rows": (
+            int(len(service.speed_loss_source)) if service is not None else 0
+        ),
+        "speed_loss_source_missing_columns": (
+            service.speed_loss_source_missing_columns if service is not None else []
+        ),
         "llm_provider": config.LLM_PROVIDER,
         "retriever": config.RETRIEVER,
         "advisor_mode": app.state.advisor.mode if app.state.advisor else None,
@@ -134,6 +144,26 @@ def ship_forecast(ship_id: str, model: str = "clean-baseline", speed: float | No
         return _svc(app.state).ship_forecast(ship_id, model, speed)
     except KeyError as exc:
         raise HTTPException(404, f"未知船舶或模型 {exc.args[0]}")
+
+
+@app.get("/api/ship/{ship_id}/speed-loss-prediction")
+def ship_speed_loss_prediction(
+    ship_id: str,
+    forecast_days: int = Query(180, ge=30, le=365),
+    threshold_pct: float = Query(8.0, ge=1.0, le=30.0),
+    max_wind_scale: float = Query(4.0, ge=0.0, le=12.0),
+    load_condition: Literal["all", "laden", "ballast"] = "all",
+):
+    try:
+        return _svc(app.state).speed_loss_prediction(
+            ship_id,
+            forecast_days=forecast_days,
+            threshold_pct=threshold_pct,
+            max_wind_scale=max_wind_scale,
+            load_condition=load_condition,
+        )
+    except KeyError:
+        raise HTTPException(404, f"未知船舶 {ship_id}")
 
 
 @app.get("/api/ship/{ship_id}/log")

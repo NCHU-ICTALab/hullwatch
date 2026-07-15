@@ -16,13 +16,15 @@ import {
 } from 'lucide-react'
 import type { EChartsOption } from 'echarts'
 import { api } from './api'
+import { shouldSubmitAdvisorComposer } from './advisorComposer'
 import { BrandIdentity } from './components/BrandIdentity'
 import { AttributionSplitBar, DashboardToolsMenu } from './components/DiagnosisWidgets'
 import { EChart } from './components/EChart'
+import { SpeedLossPredictionPanel } from './components/SpeedLossPredictionPanel'
 import { MarkdownContent } from './components/MarkdownContent'
 import { AdvisorSuggestions } from './components/AdvisorSuggestions'
 import { FleetScheduleDisclosure, StatusFilterButtons, WorkflowSteps, type StatusFilterOption } from './components/WorkflowControls'
-import { advisorWidthBounds, ALERT_AUTO_OPEN_ON_ARRIVAL, allocateEventLanes, clampAdvisorWidth, cleaningSavings, decisionModelOptions, EVENT_LANE_HEIGHT, fleetShipMatchesFilters, formatUsd, fuelHistoryForGrade, GANTT_EVENT_LABEL_CLEARANCE_DAYS, layoutTrendEventMarkers, maintenanceActionLabel, maintenanceActionPresentation, resolveSelectedShipId, scheduleForSelectedShip, speedLossMinimumForStatus } from './dashboardLogic'
+import { advisorWidthBounds, ALERT_AUTO_OPEN_ON_ARRIVAL, allocateEventLanes, clampAdvisorWidth, EVENT_LANE_HEIGHT, fleetShipMatchesFilters, formatUsd, fuelHistoryForGrade, GANTT_EVENT_LABEL_CLEARANCE_DAYS, layoutTrendEventMarkers, maintenanceActionLabel, maintenanceActionPresentation, resolveSelectedShipId, scheduleForSelectedShip, speedLossMinimumForStatus } from './dashboardLogic'
 import type {
   AdvisorResponse,
   AlertsResponse,
@@ -64,10 +66,6 @@ function App() {
   const [detail, setDetail] = useState<ShipDetail | null>(null)
   const [roi, setRoi] = useState<RoiResponse | null>(null)
   const [log, setLog] = useState<LogEntry[]>([])
-  const [forecasts, setForecasts] = useState<Record<string, ForecastResponse>>({})
-  const [primaryModel, setPrimaryModel] = useState('linear-growth')
-  const [visibleModels, setVisibleModels] = useState<string[]>([])
-  const [scenarioSpeed, setScenarioSpeed] = useState(15)
   const [fuelScenario, setFuelScenario] = useState(600)
   const [statusFilter, setStatusFilter] = useState<'all' | Status>('all')
   const [slMinimum, setSlMinimum] = useState(0)
@@ -79,7 +77,6 @@ function App() {
   const [viewportWidth, setViewportWidth] = useState(() => window.innerWidth)
   const [advisorWidth, setAdvisorWidth] = useState(() => clampAdvisorWidth(440, window.innerWidth))
   const [decisionFocusKey, setDecisionFocusKey] = useState(0)
-  const [primaryModelBusy, setPrimaryModelBusy] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [refreshVersion, setRefreshVersion] = useState(0)
   const [loading, setLoading] = useState(true)
@@ -119,8 +116,6 @@ function App() {
         setFuel(fuelData)
         setFuelScenario(fuelData.effective_price.usd_per_ton)
         setAlerts(alertData)
-        setPrimaryModel(modelData.models.find((model) => model.is_primary)?.id ?? 'linear-growth')
-        setVisibleModels(modelData.models.slice(0, 2).map((model) => model.id))
       })
       .catch((reason: unknown) => setError(reason instanceof Error ? reason.message : '資料載入失敗'))
       .finally(() => setLoading(false))
@@ -128,13 +123,12 @@ function App() {
   }, [])
 
   useEffect(() => {
-    if (!selectedShipId || models.length === 0) return
+    if (!selectedShipId) return
     if (requestedShipId.current !== selectedShipId) {
       requestedShipId.current = selectedShipId
       setDetail(null)
       setRoi(null)
       setLog([])
-      setForecasts({})
     }
     let active = true
     Promise.all([
@@ -146,20 +140,14 @@ function App() {
         schedule?.recommendations.find((item) => item.ship_id === selectedShipId)?.speed_loss_recovery_pp,
       ),
       api.log(selectedShipId),
-      ...models.map((model) => api.forecast(selectedShipId, model.id, scenarioSpeed)),
-    ]).then(([shipData, roiData, logData, ...forecastData]) => {
+    ]).then(([shipData, roiData, logData]) => {
       if (!active) return
-      setDetail(shipData as ShipDetail)
-      setRoi(roiData as RoiResponse)
-      setLog((logData as { entries: LogEntry[] }).entries)
-      setForecasts(Object.fromEntries((forecastData as ForecastResponse[]).map((item) => [item.model_id, item])))
+      setDetail(shipData)
+      setRoi(roiData)
+      setLog(logData.entries)
     }).catch((reason: unknown) => setError(reason instanceof Error ? reason.message : '單船資料載入失敗'))
     return () => { active = false }
-  }, [selectedShipId, models, schedule, scenarioSpeed, fuelScenario, refreshVersion])
-
-  useEffect(() => {
-    if (detail?.current.avg_speed) setScenarioSpeed(detail.current.avg_speed)
-  }, [detail?.ship_id, detail?.current.avg_speed])
+  }, [selectedShipId, schedule, fuelScenario, refreshVersion])
 
   useEffect(() => {
     if (view !== 'decide' || decisionFocusKey === 0) return
@@ -225,24 +213,6 @@ function App() {
     const [result, scheduleData] = await Promise.all([api.models(), api.schedule()])
     setModels(result.models)
     setSchedule(scheduleData)
-    setPrimaryModel(result.models.find((model) => model.is_primary)?.id ?? 'linear-growth')
-    setVisibleModels(result.models.filter((model) => model.status !== 'rejected').slice(0, 2).map((model) => model.id))
-  }
-
-  const changePrimaryModel = async (modelId: string) => {
-    if (modelId === primaryModel || primaryModelBusy) return
-    const previousModel = primaryModel
-    setPrimaryModel(modelId)
-    setPrimaryModelBusy(true)
-    try {
-      await api.activateModel(modelId)
-      await refreshModels()
-    } catch (reason) {
-      setPrimaryModel(previousModel)
-      setError(reason instanceof Error ? reason.message : '主模型切換失敗')
-    } finally {
-      setPrimaryModelBusy(false)
-    }
   }
 
   if (loading) return <LoadingScreen />
@@ -270,6 +240,7 @@ function App() {
         {error && <div className="error-banner" role="alert"><AlertTriangle size={18} />{error}<button onClick={() => setError('')}>關閉</button></div>}
 
         <main id="main-content">
+          <p className="date-provenance-notice" role="note"><b>日期軸說明：</b>船舶日報、養護事件與排程只有相對日；這些區域的 YYYY-MM-DD 是以 Day 0 = 2021-01-01 產生的映射座標，只供排序與計算日距，不是真實日曆日期。市場行情日期依各外部來源標示，不使用此映射。</p>
           {view === 'fleet' && fleet && (
             <FleetView
               fleet={fleet}
@@ -290,17 +261,7 @@ function App() {
           {view === 'diagnose' && (
             <DiagnoseView
               detail={detail}
-              models={models}
-              forecasts={forecasts}
-              primaryModel={primaryModel}
-              onPrimaryModelChange={changePrimaryModel}
-              primaryModelBusy={primaryModelBusy}
-              visibleModels={visibleModels}
-              setVisibleModels={setVisibleModels}
-              scenarioSpeed={scenarioSpeed}
-              setScenarioSpeed={setScenarioSpeed}
               log={log}
-              roi={roi}
               onDecide={() => { setView('decide'); setDecisionFocusKey((key) => key + 1) }}
               recommendation={schedule?.recommendations.find((item) => item.ship_id === selectedShipId)}
               dark={dark}
@@ -312,7 +273,6 @@ function App() {
               fuel={fuel}
               roi={roi}
               selectedShipId={selectedShipId}
-              primaryModel={primaryModel}
               onSelect={selectShip}
               onDecisionShipChange={setSelectedShipId}
               dark={dark}
@@ -429,7 +389,7 @@ function FleetView({ fleet, fuel, tickerPaused, setTickerPaused, ships, statusFi
   }))
   return (
     <section className="page fleet-page" aria-labelledby="fleet-title">
-      <PageHeading eyebrow="01 / FLEET HEALTH" title="船隊健康總覽" subtitle={`${fleet.stats.n_ships} 艘船 · 依 Speed Loss 風險與清洗急迫度排序`} />
+      <PageHeading eyebrow="01 / FLEET HEALTH" title="Speed Loss 總覽" subtitle={`${fleet.stats.n_ships} 艘船 · 依 Speed Loss 風險與清洗急迫度排序`} />
       {fuel && <FuelTicker fuel={fuel} paused={tickerPaused} setPaused={setTickerPaused} />}
       <div className="fleet-stats instrument-grid">
         <Metric label="平均 Speed Loss" value={`${number.format(fleet.stats.avg_speed_loss_pct)}%`} tone="teal" />
@@ -469,19 +429,9 @@ function ShipCard({ ship, onSelect }: { ship: FleetShip; onSelect: (shipId: stri
   )
 }
 
-function DiagnoseView({ detail, models, forecasts, primaryModel, onPrimaryModelChange, primaryModelBusy, visibleModels, setVisibleModels, scenarioSpeed, setScenarioSpeed, log, roi, onDecide, recommendation, dark }: {
+function DiagnoseView({ detail, log, onDecide, recommendation, dark }: {
   detail: ShipDetail | null
-  models: ModelInfo[]
-  forecasts: Record<string, ForecastResponse>
-  primaryModel: string
-  onPrimaryModelChange: (id: string) => Promise<void>
-  primaryModelBusy: boolean
-  visibleModels: string[]
-  setVisibleModels: (ids: string[]) => void
-  scenarioSpeed: number
-  setScenarioSpeed: (value: number) => void
   log: LogEntry[]
-  roi: RoiResponse | null
   onDecide: () => void
   recommendation?: ScheduleItem
   dark: boolean
@@ -494,65 +444,50 @@ function DiagnoseView({ detail, models, forecasts, primaryModel, onPrimaryModelC
     if (!detail) return {}
     const chartText = dark ? '#A7B8C0' : '#4A5A63'
     const chartGrid = dark ? '#2A3B43' : '#D8DFE4'
-    const legendNames = ['歷史 Speed Loss']
-    const series: NonNullable<EChartsOption['series']> = [{
-      name: '歷史 Speed Loss', type: 'line', showSymbol: false, data: detail.series.map((point) => [point.date, point.speed_loss]), lineStyle: { width: 3, color: '#0E5E6F' }, itemStyle: { color: '#0E5E6F' },
-      markLine: { silent: true, symbol: 'none', label: { formatter: `清洗門檻 ${detail.current.threshold_pct}%`, color: chartText }, lineStyle: { color: '#A33B2E', type: 'dashed', width: 2 }, data: [{ yAxis: detail.current.threshold_pct }] },
-      markArea: { silent: true, itemStyle: { color: dark ? 'rgba(232,144,127,.12)' : 'rgba(163,59,46,.08)' }, data: [[{ yAxis: detail.current.threshold_pct }, { yAxis: 35 }]] },
-      markPoint: { symbol: 'diamond', symbolSize: 25, itemStyle: { color: '#C77400', borderColor: dark ? '#F4F7F8' : '#FFFFFF', borderWidth: 1 }, label: { show: true, position: 'inside', formatter: '{b}', color: '#071A20', fontSize: 11, fontWeight: 800 }, tooltip: { formatter: (params) => { const data = (params as { data?: { actionLabel?: string; date?: string; notes?: string } }).data; return data ? [data.date, data.actionLabel, data.notes].filter(Boolean).join('\n') : '' } }, data: eventMarkers.map((event) => ({ name: event.markerLabel, value: event.actionLabel, actionLabel: event.actionLabel, date: event.date, notes: event.notes, coord: [event.date, event.y], symbolOffset: [0, event.offsetY] })) },
-    }]
-    const colors = ['#C77400', '#A33B2E', '#647984']
-    visibleModels.forEach((modelId, index) => {
-      const forecast = forecasts[modelId]
-      if (!forecast) return
-      legendNames.push(forecast.model_name)
-      if (modelId === primaryModel) {
-        series.push(
-          { name: '預測下界', type: 'line', stack: 'primary-band', symbol: 'none', silent: true, lineStyle: { opacity: 0 }, areaStyle: { opacity: 0 }, data: forecast.forecast.map((point) => [point.date, point.lo]) },
-          { name: '主模型範圍', type: 'line', stack: 'primary-band', symbol: 'none', silent: true, lineStyle: { opacity: 0 }, areaStyle: { color: dark ? 'rgba(91,192,208,.22)' : 'rgba(14,94,111,.18)' }, data: forecast.forecast.map((point) => [point.date, point.hi - point.lo]) },
-        )
-      }
-      series.push({ name: forecast.model_name, type: 'line', symbol: index === 0 ? 'triangle' : 'circle', symbolSize: 6, data: forecast.forecast.map((point) => [point.date, point.mid]), lineStyle: { width: modelId === primaryModel ? 3 : 2, type: index === 0 ? 'dashed' : 'dotted', color: colors[index] }, itemStyle: { color: colors[index] } })
-    })
     return {
       animation: !window.matchMedia('(prefers-reduced-motion: reduce)').matches,
-      textStyle: { color: chartText, fontSize: 14 }, tooltip: { trigger: 'axis', renderMode: 'richText' }, legend: { data: legendNames, bottom: 0, textStyle: { color: chartText, fontSize: 13 } },
-      grid: { left: 48, right: 24, top: 32, bottom: 66 },
+      textStyle: { color: chartText, fontSize: 14 },
+      tooltip: { trigger: 'axis', renderMode: 'richText' },
+      grid: { left: 48, right: 24, top: 32, bottom: 52 },
       xAxis: { type: 'time', axisLabel: { color: chartText, fontSize: 13 }, axisLine: { lineStyle: { color: chartGrid } } },
       yAxis: { type: 'value', name: 'Speed Loss %', nameTextStyle: { color: chartText, fontSize: 13 }, axisLabel: { color: chartText, fontSize: 13 }, splitLine: { lineStyle: { color: chartGrid } } },
-      series,
+      series: [{
+        name: '歷史 Speed Loss', type: 'line', showSymbol: false, data: detail.series.map((point) => [point.date, point.speed_loss]), lineStyle: { width: 3, color: '#0E5E6F' }, itemStyle: { color: '#0E5E6F' },
+        markLine: { silent: true, symbol: 'none', label: { formatter: `清洗門檻 ${detail.current.threshold_pct}%`, color: chartText }, lineStyle: { color: '#A33B2E', type: 'dashed', width: 2 }, data: [{ yAxis: detail.current.threshold_pct }] },
+        markArea: { silent: true, itemStyle: { color: dark ? 'rgba(232,144,127,.12)' : 'rgba(163,59,46,.08)' }, data: [[{ yAxis: detail.current.threshold_pct }, { yAxis: 35 }]] },
+        markPoint: { symbol: 'diamond', symbolSize: 25, itemStyle: { color: '#C77400', borderColor: dark ? '#F4F7F8' : '#FFFFFF', borderWidth: 1 }, label: { show: true, position: 'inside', formatter: '{b}', color: '#071A20', fontSize: 11, fontWeight: 800 }, tooltip: { formatter: (params) => { const data = (params as { data?: { actionLabel?: string; date?: string; notes?: string } }).data; return data ? [data.date, data.actionLabel, data.notes].filter(Boolean).join('\n') : '' } }, data: eventMarkers.map((event) => ({ name: event.markerLabel, value: event.actionLabel, actionLabel: event.actionLabel, date: event.date, notes: event.notes, coord: [event.date, event.y], symbolOffset: [0, event.offsetY] })) },
+      }],
     }
-  }, [dark, detail, eventMarkers, forecasts, primaryModel, visibleModels])
+  }, [dark, detail, eventMarkers])
 
-  if (!detail) return <InlineLoading label="載入單船診斷" />
+  if (!detail) return <InlineLoading label="載入單船日誌" />
   const current = detail.current
   const nextAction = recommendation ? maintenanceActionLabel(recommendation.action) : '待 ROI 引擎評估'
-  const selectableModels = decisionModelOptions(models)
+  const cleanEvent = current.last_clean_event
+  const cleanBasis = current.days_since_clean_basis === 'event'
+    ? `截至 ${current.as_of}`
+    : `資料起點至 ${current.as_of}`
   return (
     <section className="page diagnose-page" aria-labelledby="diagnose-title">
-      <PageHeading eyebrow="02 / PERFORMANCE DIAGNOSIS" title={detail.ship_name} subtitle={`${detail.ship_id} · 最新正午日報與 16 週效能預測`} badge={`${statusMeta[detail.status].symbol} ${statusMeta[detail.status].label}`} />
+      <PageHeading eyebrow="02 / SHIP LOG" title={detail.ship_name} subtitle={`${detail.ship_id} · 映射座標截至 ${current.as_of} · 正午日報與歷史效能`} badge={`${statusMeta[detail.status].symbol} ${statusMeta[detail.status].label}`} />
       <div className="kpi-grid">
-        <Metric label="今日均速" value={current.avg_speed?.toFixed(1) ?? '—'} unit="kn" spark={detail.kpi_sparks.avg_speed} />
-        <Metric label="今日油耗" value={current.daily_foc?.toFixed(1) ?? '—'} unit="t/day" spark={detail.kpi_sparks.daily_foc} />
+        <Metric label="最新均速" value={current.avg_speed?.toFixed(1) ?? '—'} unit="kn" spark={detail.kpi_sparks.avg_speed} />
+        <Metric label="最新油耗" value={current.daily_foc?.toFixed(1) ?? '—'} unit="t/day" spark={detail.kpi_sparks.daily_foc} />
         <Metric label="Speed Loss" value={`${current.speed_loss_pct.toFixed(1)}%`} tone={detail.status === 'action' ? 'red' : 'amber'} spark={detail.kpi_sparks.speed_loss} />
         <Metric label="超額油耗" value={current.excess_foc?.toFixed(1) ?? '—'} unit="t/day" tone="red" spark={detail.kpi_sparks.excess_foc} />
         <Metric label="風級" value={current.wind_scale?.toFixed(0) ?? '—'} unit="Bft" spark={detail.kpi_sparks.wind_scale} />
-        <Metric label="距上次清潔" value={`${current.days_since_clean}`} unit="天" spark={detail.kpi_sparks.days_since_clean} />
-        <Metric label="最近清潔動作" value={maintenanceActionLabel(current.last_event?.type)} unit={current.last_event?.date ?? ''} compact />
+        <Metric label="距上次船體清潔" value={`${current.days_since_clean}`} unit={`天 · ${cleanBasis}`} spark={detail.kpi_sparks.days_since_clean} />
+        <Metric label="最近船體清潔" value={cleanEvent ? maintenanceActionLabel(cleanEvent.type) : '資料期間內無清洗'} unit={cleanEvent?.date ?? '以資料起點計算'} compact />
+        <Metric label="最近維護動作" value={maintenanceActionLabel(current.last_event?.type)} unit={current.last_event?.date ?? '—'} compact />
         <Metric label="每日超額成本" value={formatUsd(current.excess_cost_per_day, '日')} tone="red" compact />
       </div>
       <div className="diagnose-layout">
         <section className="panel chart-panel wide-panel">
-          <div className="panel-heading"><div><span>SL TREND / FORECAST</span><h2>Speed Loss 趨勢與模型比較</h2></div><span className="model-basis">下游依據：{models.find((model) => model.id === primaryModel)?.name}</span></div>
-          <div className="chart-controls">
-            <label>決策主模型<select value={primaryModel} onChange={(event) => void onPrimaryModelChange(event.target.value)} disabled={primaryModelBusy || selectableModels.length < 2} aria-busy={primaryModelBusy}>{selectableModels.map((model) => <option key={model.id} value={model.id}>{model.name}</option>)}</select></label>
-            <fieldset><legend>顯示比較模型</legend>{models.map((model) => <label key={model.id}><input type="checkbox" checked={visibleModels.includes(model.id)} onChange={(event) => setVisibleModels(event.target.checked ? [...visibleModels, model.id] : visibleModels.filter((id) => id !== model.id))} />{model.name}</label>)}</fieldset>
-            <DualInput label="情境船速" value={scenarioSpeed} min={12} max={20} step={0.5} unit="kn" onChange={setScenarioSpeed} />
-          </div>
-          <EChart option={trendOption} className="main-chart" ariaLabel={`${detail.ship_name} Speed Loss 歷史與多模型預測圖`} />
+          <div className="panel-heading"><div><span>SL HISTORY</span><h2>Speed Loss 歷史趨勢</h2></div><span className="model-basis">映射座標截至 {current.as_of}</span></div>
+          <EChart option={trendOption} className="main-chart" ariaLabel={`${detail.ship_name} Speed Loss 歷史趨勢圖`} />
           <p className="event-legend"><b aria-hidden="true">◆</b> 圖中編號對應下方維護事件清單；密集事件會分層顯示，完整動作名稱統一使用中文。</p>
           {eventMarkers.length > 0 && <details className="data-fallback"><summary>查看維護事件說明</summary><ol className="event-list">{eventMarkers.map((event) => <li key={`${event.date}-${event.type}-${event.markerLabel}`}><b className="event-marker-number" aria-label={`圖中標記 ${event.markerLabel}`}>{event.markerLabel}</b><time>{event.date}</time><strong>{event.actionLabel}</strong><span>{event.notes || '無附註'}</span></li>)}</ol></details>}
-          <details className="data-fallback"><summary>查看圖表資料表</summary><TrendTable detail={detail} forecasts={forecasts} visibleModels={visibleModels} /></details>
+          <details className="data-fallback"><summary>查看圖表資料表</summary><TrendTable detail={detail} forecasts={{}} visibleModels={[]} /></details>
         </section>
         <section className="panel attribution-panel">
           <div className="panel-heading"><div><span>FOULING ATTRIBUTION</span><h2>船殼／螺旋槳歸因</h2></div></div>
@@ -570,17 +505,15 @@ function DiagnoseView({ detail, models, forecasts, primaryModel, onPrimaryModelC
           <LogTable entries={log} />
         </section>
       </div>
-      {roi && <span className="sr-only" aria-live="polite">目前最佳清洗日為 {roi.target.best_day ?? '無建議'}</span>}
     </section>
   )
 }
 
-function DecideView({ schedule, fuel, roi, selectedShipId, primaryModel, onSelect, onDecisionShipChange, dark, fuelScenario, setFuelScenario, focusKey }: {
+function DecideView({ schedule, fuel, roi, selectedShipId, onSelect, onDecisionShipChange, dark, fuelScenario, setFuelScenario, focusKey }: {
   schedule: ScheduleResponse
   fuel: FuelPriceResponse
   roi: RoiResponse
   selectedShipId: string
-  primaryModel: string
   onSelect: (shipId: string, view?: View) => void
   onDecisionShipChange: (shipId: string) => void
   dark: boolean
@@ -591,18 +524,22 @@ function DecideView({ schedule, fuel, roi, selectedShipId, primaryModel, onSelec
   const [selectedRecommendation, setSelectedRecommendation] = useState<ScheduleItem | null>(
     schedule.recommendations.find((item) => item.ship_id === selectedShipId) ?? null,
   )
-  const [cleaningDay, setCleaningDay] = useState(roi.target.best_day ?? 0)
+  const [selectedCleaningAction, setSelectedCleaningAction] = useState<ScheduleItem['action'] | null>(
+    selectedRecommendation?.action ?? null,
+  )
   const [fuelGrade, setFuelGrade] = useState('VLSFO')
-  useEffect(() => setCleaningDay(roi.target.best_day ?? 0), [roi.target.best_day])
   useEffect(() => {
-    setSelectedRecommendation(
-      schedule.recommendations.find((item) => item.ship_id === selectedShipId) ?? null,
-    )
+    const recommendation = schedule.recommendations.find((item) => item.ship_id === selectedShipId) ?? null
+    setSelectedRecommendation(recommendation)
+    setSelectedCleaningAction(recommendation?.action ?? null)
   }, [schedule.recommendations, selectedShipId])
   const selectedSchedule = useMemo(
     () => scheduleForSelectedShip(schedule, selectedShipId),
     [schedule, selectedShipId],
   )
+  const selectedCleaningOption = selectedRecommendation?.action_options.find(
+    (option) => option.action === selectedCleaningAction,
+  ) ?? selectedRecommendation?.action_options[0] ?? null
   const chartText = dark ? '#A7B8C0' : '#4A5A63'
   const chartGrid = dark ? '#2A3B43' : '#D8DFE4'
   const selectedFuelHistory = useMemo(
@@ -610,14 +547,6 @@ function DecideView({ schedule, fuel, roi, selectedShipId, primaryModel, onSelec
     [fuel, fuelGrade],
   )
   const selectedFuelPrice = fuel.prices.find((price) => price.grade === fuelGrade)
-  const roiOption = useMemo<EChartsOption>(() => ({
-    textStyle: { color: chartText, fontSize: 14 },
-    tooltip: { trigger: 'axis', valueFormatter: (value) => formatUsd(Number(value), '日') },
-    grid: { left: 18, right: 22, top: 38, bottom: 18, containLabel: true },
-    xAxis: { type: 'category', axisLabel: { color: chartText, fontSize: 12, formatter: (value: string) => `第 ${value} 天`, hideOverlap: true }, data: roi.target.days.filter((_, index) => index % 5 === 0) },
-    yAxis: { type: 'value', axisLabel: { color: chartText, fontSize: 12, margin: 12, formatter: (value: number) => formatUsd(value, '日') }, splitLine: { lineStyle: { color: chartGrid } } },
-    series: [{ name: '平均每日淨節省', type: 'line', data: cleaningSavings(roi.target.no_clean_avg, roi.target.avg_cost.filter((_, index) => index % 5 === 0)), smooth: true, showSymbol: false, lineStyle: { width: 3, color: '#0E5E6F' }, areaStyle: { color: 'rgba(14,94,111,.12)' }, markLine: { symbol: 'none', label: { position: 'insideEndTop', formatter: '損益兩平', color: chartText }, data: [{ yAxis: 0 }], lineStyle: { color: '#A33B2E', type: 'dashed' } }, markPoint: roi.target.best_day === null ? undefined : { symbolSize: 42, label: { formatter: '最佳', color: '#071A20', fontSize: 11, fontWeight: 800 }, data: [{ coord: [Math.floor(roi.target.best_day / 5), roi.target.no_clean_avg - roi.target.best_avg], name: '最佳日' }], itemStyle: { color: '#C77400' } } }],
-  }), [chartGrid, chartText, roi])
   const fuelOption = useMemo<EChartsOption>(() => ({
     textStyle: { color: chartText, fontSize: 14 },
     tooltip: { trigger: 'axis', valueFormatter: (value) => formatUsd(Number(value), 'mt', 2) }, grid: { left: 18, right: 20, top: 20, bottom: 38, containLabel: true },
@@ -627,21 +556,25 @@ function DecideView({ schedule, fuel, roi, selectedShipId, primaryModel, onSelec
   }), [chartGrid, chartText, fuelGrade, selectedFuelHistory])
   return (
     <section className="page decide-page" aria-labelledby="decide-title">
-      <PageHeading eyebrow="03 / MAINTENANCE DECISION" title="維護排程與經濟決策" subtitle={`未來 ${schedule.horizon_days} 天 · 唯讀系統建議 · 主模型 ${primaryModel}`} badge={`目前船舶 · ${roi.target.ship_name}（${selectedShipId}）`} />
+      <PageHeading eyebrow="03 / MAINTENANCE DECISION" title="維護排程與經濟決策" subtitle={`未來 ${schedule.horizon_days} 天 · 唯讀系統建議 · STW／功率逐船預測`} badge={`目前船舶 · ${roi.target.ship_name}（${selectedShipId}）`} />
+      <SpeedLossPredictionPanel shipId={selectedShipId} shipName={roi.target.ship_name} dark={dark} />
       <section className="panel schedule-panel">
         <div className="panel-heading"><div><span>SELECTED VESSEL WINDOW</span><h2>{roi.target.ship_name} 清潔建議甘特圖</h2></div><span className="model-basis">過去 {schedule.past_days} 天 · 未來 {schedule.future_days} 天</span></div>
-        {selectedRecommendation && <article id="selected-decision" tabIndex={-1} className={`schedule-detail ${focusKey ? 'focus-highlight' : ''}`} aria-live="polite"><div><span>建議詳情 · 唯讀</span><strong>{selectedRecommendation.ship_name} / {maintenanceActionLabel(selectedRecommendation.action)}</strong></div><p>{selectedRecommendation.window_start}–{selectedRecommendation.window_end}，作業成本 {formatUsd(selectedRecommendation.action_cost_usd)}，預期回復 <b>{selectedRecommendation.speed_loss_recovery_pp.toFixed(1)}pp SL</b>、每日省 {selectedRecommendation.daily_fuel_saving_tons.toFixed(2)} 噸、每月省 {formatUsd(selectedRecommendation.monthly_saving_usd, '月')}。若延後，優先遞補：{selectedRecommendation.backfill.ship_name}。{selectedRecommendation.inspection_recommended && <b> 不確定性較高，建議先安排水下檢查。</b>}</p><button onClick={() => onSelect(selectedRecommendation.ship_id, 'diagnose')}>查看單船診斷 <ChevronRight size={15} /></button></article>}
+        {selectedRecommendation && <article id="selected-decision" tabIndex={-1} className={`schedule-detail ${focusKey ? 'focus-highlight' : ''}`} aria-live="polite"><div><span>建議詳情 · 唯讀</span><strong>{selectedRecommendation.ship_name} / {maintenanceActionLabel(selectedRecommendation.action)}</strong></div><p>{selectedRecommendation.window_start}–{selectedRecommendation.window_end}，作業成本 {formatUsd(selectedRecommendation.action_cost_usd)}，預期回復 <b>{selectedRecommendation.speed_loss_recovery_pp.toFixed(1)}pp SL</b>、每日省 {selectedRecommendation.daily_fuel_saving_tons.toFixed(2)} 噸、每月省 {formatUsd(selectedRecommendation.monthly_saving_usd, '月')}。若延後，優先遞補：{selectedRecommendation.backfill.ship_name}。{selectedRecommendation.inspection_recommended && <b> 不確定性較高，建議先安排水下檢查。</b>}</p><button onClick={() => onSelect(selectedRecommendation.ship_id, 'diagnose')}>查看單船日誌 <ChevronRight size={15} /></button></article>}
         <ScheduleGantt schedule={selectedSchedule} selectedShipId={selectedRecommendation?.ship_id} showSorting={false} ariaLabel={`${roi.target.ship_name} 過去 ${schedule.past_days} 天至未來 ${schedule.future_days} 天清潔建議甘特圖`} onOpen={(item) => { setSelectedRecommendation(item); onDecisionShipChange(item.ship_id) }} onSelect={onSelect} />
       </section>
       <div className="decision-grid">
-        <section className="panel roi-panel">
-          <div className="panel-heading"><div><span>WHAT-IF / 180 DAYS</span><h2>{roi.target.ship_name} 清洗日淨節省曲線</h2></div></div>
-          <div className="decision-callout"><span>系統最佳日<b>{roi.target.best_day === null ? '暫不清洗' : `第 ${roi.target.best_day} 天`}</b></span><span>回本期<b>{roi.target.payback_days ?? '—'} 天</b></span><span>每日超額碳排<b>{roi.target.excess_co2_per_day} tCO₂</b></span><span>所選方案淨節省<b>{formatUsd(roi.target.no_clean_avg - (roi.target.avg_cost[cleaningDay] ?? roi.target.no_clean_avg), '日')}</b></span></div>
-          <div className="scenario-control"><DualInput label="清洗日 What-if" value={cleaningDay} min={0} max={180} step={1} unit="天後" onChange={setCleaningDay} /><DualInput label="有效油價情境" value={fuelScenario} min={300} max={1500} step={10} unit="US$／mt" onChange={setFuelScenario} /><small>情境由後端 ROI 曲線計算；不改寫行情來源。</small></div>
-          <p className="chart-explanation">每一點都會重新計算「該日才清洗」在 180 天內的燃油超額成本與清洗費，再減去完全不清洗的成本；高於零代表清洗較省。</p>
-          <dl className="chart-axis-summary" aria-label="清洗日淨節省曲線坐標軸說明"><div><dt>橫軸</dt><dd>清洗延後天數</dd></div><div><dt>縱軸</dt><dd>相較不清洗淨節省（USD／日）</dd></div></dl>
-          <EChart option={roiOption} className="decision-chart" ariaLabel={`${roi.target.ship_name} 未來 180 天不同清洗日相較不清洗的平均每日淨節省曲線`} />
-          <details className="data-fallback"><summary>查看 What-if 資料</summary><table><thead><tr><th>清洗日</th><th>平均每日成本（USD／日）</th><th>相較不清洗淨節省（USD／日）</th></tr></thead><tbody>{roi.target.days.filter((_, index) => index % 15 === 0).map((day, index) => <tr key={day}><td>第 {day} 天</td><td>{formatUsd(roi.target.avg_cost[index * 15], '日')}</td><td>{formatUsd(roi.target.no_clean_avg - roi.target.avg_cost[index * 15], '日')}</td></tr>)}</tbody></table></details>
+        <section className="panel cleaning-benefit-panel">
+          <div className="panel-heading"><div><span>IMMEDIATE CLEANING WHAT-IF</span><h2>立即清潔效益試算</h2></div><span className="model-basis">以目前 Speed Loss 與所選油價情境估算</span></div>
+          <p className="benefit-intro">比較螺旋槳拋光、船殼清洗與合併作業；數值是 clean-baseline 情境推估，不是已發生的實測節省。</p>
+          <div className="cleaning-option-grid" role="group" aria-label="選擇立即清潔動作">
+            {(selectedRecommendation?.action_options ?? []).map((option) => {
+              const monthlySaving = option.daily_fuel_saving_tons * fuelScenario * 30
+              return <button type="button" key={option.action} className={selectedCleaningAction === option.action ? 'selected' : ''} aria-pressed={selectedCleaningAction === option.action} onClick={() => setSelectedCleaningAction(option.action)}><span>{maintenanceActionLabel(option.action)}</span><strong>SL −{option.speed_loss_recovery_pp.toFixed(1)}pp</strong><small>每日省油 {option.daily_fuel_saving_tons.toFixed(2)} t</small><small>每月約省 {formatUsd(monthlySaving, '月')}</small></button>
+            })}
+          </div>
+          {selectedCleaningOption && <div className="decision-callout cleaning-benefit-summary"><span>清潔後 Speed Loss<b>{selectedCleaningOption.post_clean_speed_loss_pct.toFixed(1)}%</b></span><span>每日省油<b>{selectedCleaningOption.daily_fuel_saving_tons.toFixed(2)} t/day</b></span><span>每月節省<b>{formatUsd(selectedCleaningOption.daily_fuel_saving_tons * fuelScenario * 30, '月')}</b></span><span>預估回本<b>{selectedCleaningOption.daily_fuel_saving_tons * fuelScenario > 0 ? `${Math.ceil(selectedCleaningOption.action_cost_usd / (selectedCleaningOption.daily_fuel_saving_tons * fuelScenario))} 天` : '—'}</b></span></div>}
+          <div className="scenario-control"><DualInput label="有效油價情境" value={fuelScenario} min={300} max={1500} step={10} unit="US$／mt" onChange={setFuelScenario} /><small>油價只調整金額與回本期；Speed Loss 回復與每日省油量由後端方案引擎提供。</small></div>
         </section>
         <section className="panel fuel-panel">
           <div className="panel-heading"><div><span>FUEL MARKET</span><h2>市場行情與決策情境價</h2></div><b className={`market-badge market-${fuel.market_status}`}>{fuel.market_status}</b></div>
@@ -903,7 +836,11 @@ function AdvisorPanel({ open, shipId, width, minWidth, maxWidth, onResize, onClo
     <div className="advisor-context"><Bot size={17} /><span>可詢問風險排序、維護建議與決策依據</span><kbd>Esc</kbd></div>
     <AdvisorSuggestions shipId={shipId} onSelect={(suggestedQuestion) => { setQuestion(suggestedQuestion); inputRef.current?.focus() }} />
     <div className="advisor-thread" aria-live="polite" ref={threadRef}>{messages.length === 0 && !live && <div className="advisor-welcome"><Bot size={28} /><strong>從船隊資料開始提問</strong><p>顧問回答會保留在這次瀏覽的對話中，並附上可用的資料來源。</p></div>}{messages.map((message, index) => <div className="advisor-exchange" key={`${message.question}-${index}`}><div className="advisor-question"><span>你</span><p>{message.question}</p></div><article className="advisor-answer"><span>{message.answer.mode.toUpperCase()} MODE</span><MarkdownContent content={message.answer.answer} />{message.answer.citations.length > 0 && <small>來源：{message.answer.citations.join('、')}</small>}</article></div>)}{live && <div className="advisor-exchange"><div className="advisor-question"><span>你</span><p>{live.question}</p></div><article className="advisor-answer advisor-answer-live"><span>AGENT MODE</span>{live.tools.length > 0 && <ul className="advisor-tool-trace">{live.tools.map((name, index) => <li key={`${name}-${index}`}>✓ {ADVISOR_TOOL_LABELS[name] ?? name}</li>)}</ul>}{live.text ? <MarkdownContent content={live.text} /> : <p className="advisor-thinking">正在查詢船隊資料…</p>}<span className="advisor-cursor" aria-hidden="true" /></article></div>}</div>
-    <form className="advisor-composer" onSubmit={submit}><label htmlFor="advisor-question">詢問船隊資料</label><textarea id="advisor-question" ref={inputRef} value={question} onChange={(event) => setQuestion(event.target.value)} rows={3} placeholder="例如：哪艘船應優先安排清洗？" /><button className="primary-action" disabled={busy || !question.trim()}>{busy ? '回覆中…' : '送出問題'}</button></form>
+    <form className="advisor-composer" onSubmit={submit}><label htmlFor="advisor-question">詢問船隊資料</label><textarea id="advisor-question" ref={inputRef} value={question} onChange={(event) => setQuestion(event.target.value)} onKeyDown={(event) => {
+      if (!shouldSubmitAdvisorComposer({ key: event.key, shiftKey: event.shiftKey, isComposing: event.nativeEvent.isComposing })) return
+      event.preventDefault()
+      event.currentTarget.form?.requestSubmit()
+    }} rows={3} placeholder="例如：哪艘船應優先安排清洗？" /><button className="primary-action" disabled={busy || !question.trim()}>{busy ? '回覆中…' : '送出問題'}</button></form>
   </aside>
 }
 

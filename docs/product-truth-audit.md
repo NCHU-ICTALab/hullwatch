@@ -1,12 +1,16 @@
 # HullWatch 產品真實性稽核
 
-> 稽核日期：2026-07-15
+> 稽核日期：2026-07-16
 >
 > 稽核範圍：目前工作區的原始資料、canonical raw、runtime artifacts、模型權重、API、Dashboard 計算與部署啟動流程。本文只描述「目前程式實際做什麼」，不把規劃文件當成已完成能力。
 
 ## 結論先行
 
 HullWatch **已使用主辦提供的匿名真實資料集**產生目前工作區的 Dashboard artifacts，並已產出 102 格油耗預測檔；但 Dashboard 上多數數字不是感測器直接量測，而是模型或規則推導值。產品目前尚不能宣稱「完全符合命題」：油耗遮蔽預測已完成，Speed Loss 趨勢與事件對照也已完成；最大的缺口是「由同一套油耗模型執行 UWC／PP 反事實推論」尚未成為可執行流程，而船殼／螺旋槳歸因仍是全船隊事件前後效果比例的 proxy，不是逐船因果歸因模型。
+
+**2026-07-16 方法更新：**決策頁的 Speed Loss 預測已改為逐船、逐載況的 STW／HORSE_POWER^(1/3) OLS 管線，使用 7 天分箱、清洗下跳偵測、線性外推與 90% 平均反應信賴帶；首頁／日誌既有 KPI、成本與 ROI 仍沿用 clean-baseline 油耗曲線反演。兩條方法必須分開描述，不能把決策頁新預測反稱為舊油耗模型輸出。
+
+**日期 provenance：**原始 `vt_fd.csv` 的 `NOON_UTC` 與 `maintenance.csv` 的 `event_day` 都只有相對日，沒有可驗證的真實日曆錨點。程式中的 `2021-01-01 + day` 只是為既有日曆元件建立的 surrogate display date，只保留排序與日距；任何畫面或簡報都不能把它宣稱為真實發生日。新決策預測直接使用 NOON_UTC Day N，ETA 以距最新紀錄天數表示。
 
 另一項必須在簡報前處理的高風險是部署資料來源：目前 Docker image 不包含資料；如果容器沒有掛載 artifacts，啟動腳本會直接執行 `--synth` 產生合成資料。CloudFront 畫面雖顯示 S1–S23，與真實資料 artifacts 相符，但 API 沒有回傳資料版本或 provenance，僅憑目前程式無法證明線上部署載入的是哪一版資料。
 
@@ -24,9 +28,9 @@ HullWatch **已使用主辦提供的匿名真實資料集**產生目前工作區
 > 下列 `data/` 與 `results_*` 證據檔存放在 private `hullwatch-data` 或本機 gitignored 目錄；公開 repo 只記錄路徑與稽核結論，不公開原始資料或模型權重。
 
 1. 主辦資料 `vt_fd.csv`（21,282 列，含近重複列）與 `maintenance.csv`（77 列）。欄位與 102 個 `PREDICT` 的官方任務定義見 private data repo 的 `data/yangming-aws-summit-hackathon/README.md`。
-2. [`ingest_yangming.py`](../app/pipeline/ingest_yangming.py) 去重、熱值換算、以 STW 為主航速，轉成 `data/raw/noon_reports.csv`（20,938 列）、`events.csv`（複合事件拆列後 115 列）與 102 列 targets；並明確刪除合成資料才有的 `truth.csv`。
-3. 品質篩選只保留風級 ≤4、全速時數 ≥22、油耗可見且航速 >0 的資料；目前 `data/artifacts/summary.json` 顯示 15 艘、8,025 列被評分。
-4. clean-baseline XGBoost、事件前後統計與經濟規則輸出 `scored.csv`、`fleet.csv`、`maintenance_effects.csv` 等 artifacts；API 只讀這些 artifacts，不會每次請求重訓。
+2. [`ingest_yangming.py`](../app/pipeline/ingest_yangming.py) 去重、熱值換算、保留獨立 STW、HORSE_POWER、HOURS_TOTAL、DISPLACEMENT 與 NOON_UTC day，轉成 `data/raw/noon_reports.csv`（20,938 列）、`events.csv`（複合事件拆列後 115 列）與 102 列 targets；並明確刪除合成資料才有的 `truth.csv`。`report_date`／`event_date` 是從相對 day 加上 2021-01-01 的映射日期，不是真實日曆來源。
+3. 舊 clean-baseline artifact 品質篩選只保留風級 ≤4、全速時數 ≥22、油耗可見且航速 >0 的資料；目前 `data/artifacts/summary.json` 顯示 15 艘、8,025 列被評分。
+4. clean-baseline XGBoost、事件前後統計與經濟規則輸出 `scored.csv`、`fleet.csv`、`maintenance_effects.csv` 等 artifacts；首頁、日誌、排程與 ROI 讀這些 artifacts。決策頁 `speed-loss-prediction` endpoint 則直接讀 sibling `data/raw/noon_reports.csv`，依當次風級／載況／展望參數重算統計模型，不重訓 XGBoost。
 
 ISO 官方對 ISO 19030-1 的公開摘要是：它定義船殼與螺旋槳效能變化的原則與 performance indicators，且目標是「同一艘船與其自身隨時間比較」；因此本文只稱目前方法為 **ISO 19030 對齊／inspired**，不稱為完整或認證合規。[ISO 19030-1 官方頁面](https://www.iso.org/standard/63774.html)
 
@@ -34,14 +38,16 @@ ISO 官方對 ISO 19030-1 的公開摘要是：它定義船殼與螺旋槳效能
 
 | 功能或欄位 | 分類 | 現在實際來源 | 不能宣稱的事 |
 |---|---|---|---|
-| 船舶 S1–S23、航速、風級、吃水、全速時數、可見油耗 | 觀測真實資料 | 主辦提供的匿名 `vt_fd.csv`；不是串接中的即時船隊系統 | 不能稱即時 AIS／船端 telemetry；資料最後日期依船不同，最晚到 2025-12-31 |
-| PP／UWC／UWI／DD 日期與檢查欄位 | 觀測真實資料 | 主辦 `maintenance.csv` | 事件日期是真的資料列；事件「效果」不是直接量測真值 |
+| 船舶 S1–S23、STW、SOG、風級、吃水、全速時數、可見油耗、NOON_UTC day | 觀測真實資料 | 主辦提供的匿名 `vt_fd.csv`；不是串接中的即時船隊系統 | `NOON_UTC` 只有相對日；不能稱即時 AIS／船端 telemetry，也不能把程式映射出的 2021–2025 日期稱為真實日曆日 |
+| PP／UWC／UWI／DD 類型、event_day 與檢查欄位 | 觀測真實資料 | 主辦 `maintenance.csv`；event_day 與 NOON_UTC 同為相對日 | 事件類型與相對時序是真實資料列；畫面映射日期不是真實日期，事件「效果」也不是直接量測真值 |
 | `daily_foc` | 推導 | 各燃料質量先依 LCV 折成 VLSFO 當量，再除全速時數乘 24 | 不是所有日子的原始 VLSFO 實際消耗；多燃料時是熱值當量 |
 | `expected_foc`、`excess_foc` | 模型推導 | clean-baseline XGBoost 預測乾淨狀態油耗；實測減預期為 residual | residual 不保證全是髒污，也可能含模型漏項、量測誤差與未建模海況 |
-| Speed Loss 趨勢 | 模型推導 | clean-baseline 曲線反演後，再做 14 日 rolling median；值裁在 -10%～35%，船隊摘要負值再顯示為 0 | 不是直接量測；也不是完整 ISO 19030 default method 的認證結果 |
-| 「目前 Speed Loss」 | 模型推導 | 每船最後一筆合格資料的平滑 Speed Loss | 「目前」是資料集最後有效日，不是今天 |
-| 16 週預測中線 | 估算／proxy | 當前值 + 最近 120 天線性斜率；斜率小於 0 強制為 0 | 不是時間序列 ML 預測，也沒有校準過的機率意義 |
-| 預測帶 | 啟發式 | 最近 12 週標準差裁在 0.3～2.0，再隨週數線性放大 | 不是信賴區間或 prediction interval；原始碼也明確如此註記 |
+| 首頁／日誌 Speed Loss 趨勢 | 模型推導 | clean-baseline 曲線反演後，再做 14 日 rolling median；值裁在 -10%～35%，船隊摘要負值再顯示為 0 | 不是直接量測，也不是決策頁 STW／功率 OLS；兩者數值不能混稱同一模型結果 |
+| 決策頁 Speed Loss 預測 | 統計模型推導 | 每船有效資料依 DISPLACEMENT 中位拆重載／壓艙，各取最早 30% 以 OLS 擬合 `STW = a + b·HORSE_POWER^(1/3)`；逐筆 SL 排除 -8%～45% 外，再做 7 日平均箱、最近清洗後趨勢 OLS | 沒有外部海試曲線，絕對值會受早期基準與 STW／功率校準偏差影響；`all` 是兩組並列，不是混合模型 |
+| 決策頁 90% 預測錐與 ETA | 統計推導 | 最近清洗後趨勢的 OLS 平均反應信賴帶 `1.645·s·sqrt(1/n+(x-x̄)²/Sxx)`；中線／上界／下界門檻交叉形成 ETA／最早／最晚 | 是平均反應 confidence band，不是單筆未來觀測 prediction interval；超出所選 horizon 時為 null |
+| 首頁／日誌「目前 Speed Loss」 | 模型推導 | 每船最後一筆合格資料的平滑 clean-baseline Speed Loss | 「目前」是資料集最後有效相對日，不是今天；映射日期不是真實日曆日 |
+| 舊 `/forecast` 16 週預測中線 | legacy 估算／proxy | 當前 clean-baseline 值 + 最近 120 天線性斜率；斜率小於 0 強制為 0；保留 API／模型管理相容 | 已不在決策頁主圖使用；不是時間序列 ML 預測，也沒有校準過的機率意義 |
+| 舊 `/forecast` 預測帶 | legacy 啟發式 | 最近 12 週標準差裁在 0.3～2.0，再隨週數線性放大 | 已不在決策頁顯示；不是新 STW OLS 90% 信賴帶 |
 | `physics-scenario` | 啟發式 | 線性結垢增量乘「情境航速／參考航速」 | 名稱含 physics，但它不是經物理方程校準的船舶模型；目前 registry 顯示它是 active model |
 | Persistence v0 | 比較基準 | 未來維持當前 Speed Loss | 不是學習模型 |
 | 髒污 low／medium／high | 規則推導 | Speed Loss 分布肘點法；無清楚膝點時退回三分位 | 不是專家標註的真實髒污等級 |
@@ -66,7 +72,7 @@ ISO 官方對 ISO 19030-1 的公開摘要是：它定義船殼與螺旋槳效能
 - 正確掛載私有 `hullwatch-data/data` 時，可服務真實競賽資料 artifacts。
 - 沒有掛載資料時，不會報錯阻止 demo，而會產生 YM-xxxx 船名的合成資料。
 - 若 artifacts 路徑存在但缺檔，FastAPI 會在啟動時失敗或回 503；前端沒有內建假資料 fallback。
-- 現在 `/api/health` 只說 `artifacts_loaded`，沒有 dataset version、manifest SHA、`real|synthetic` 或 artifact build time。簡報前至少應人工核對 `/api/fleet` 為 S1–S23、`n_ships=15`、資料最後日期與私有 data repo 版本一致，並保留部署 log 作證。
+- 現在 `/api/health` 會分開回報 `artifacts_loaded` 與 `speed_loss_source_ready`（含 raw 列數、缺少欄位），避免 artifacts 正常但 strict 預測來源缺失時仍被誤認為完整可用；仍沒有 dataset version、manifest SHA、`real|synthetic` 或 artifact build time。簡報前至少應人工核對 `/api/fleet` 為 S1–S23、`n_ships=15`、資料最後日期與私有 data repo 版本一致，並保留部署 log 作證。
 
 ## 3. 每月超額成本：精確公式、單位與限制
 

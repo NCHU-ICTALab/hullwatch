@@ -9,9 +9,9 @@ describe('WorkflowSteps', () => {
       <WorkflowSteps currentView="fleet" selectedShip={null} onNavigate={() => undefined} />,
     )
 
-    expect(html).toContain('請先從總覽選擇船舶')
-    expect(html).toContain('診斷，請先從總覽選擇船舶')
-    expect(html).toContain('決策，請先從總覽選擇船舶')
+    expect(html).toContain('請先從 Speed Loss 總覽選擇船舶')
+    expect(html).toContain('日誌，請先從 Speed Loss 總覽選擇船舶')
+    expect(html).toContain('決策，請先從 Speed Loss 總覽選擇船舶')
     expect(html.match(/disabled=""/g)).toHaveLength(2)
   })
 
@@ -27,6 +27,8 @@ describe('WorkflowSteps', () => {
     expect(html).toContain('目前船舶')
     expect(html).toContain('S11')
     expect(html).toContain('aria-current="step"')
+    expect(html).toContain('Speed Loss 總覽')
+    expect(html).toContain('日誌')
     expect(html).not.toContain('disabled=""')
   })
 })

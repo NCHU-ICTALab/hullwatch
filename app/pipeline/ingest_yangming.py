@@ -4,8 +4,8 @@
 （data/raw/noon_reports.csv + events.csv），下游管線/API/前端零修改。
 
 關鍵轉換：
-- NOON_UTC 相對天數 → 日期（錨點 2021-01-01；已以 maintenance 絕對日期驗證：
-  day 0–1825 恰為 2021-01-01–2025-12-31，S21 遮蔽窗口緊跟其 day135 事件）
+- NOON_UTC 相對天數 → 供既有日曆型元件使用的映射日期（錨點 2021-01-01）；
+  原始兩檔沒有絕對日期，此日期只能保留順序與間隔，不能宣稱真實日曆日
 - 多燃料 → 熱值折算 VLSFO 當量（LCV 表照 README）
 - 航速採 STW（對水航速，ISO 19030 正規做法；SOG 另存）
 - HIDDEN/PREDICT → NaN；PREDICT 儲存格另出 targets 表（102 項提交用）
@@ -25,6 +25,8 @@ import pandas as pd
 
 from app import config, schema
 
+# Display-only surrogate anchor for legacy date-based charts. The source files
+# contain relative days only; this must never be presented as a real calendar date.
 EPOCH = pd.Timestamp("2021-01-01")
 
 LCV = {"HSHFO": 40.2, "ULSFO": 41.2, "VLSFO": 40.2, "LSMGO": 42.7, "BIO_HSFO": 39.4}
@@ -44,6 +46,8 @@ EVENT_TYPE_MAP = {
 EXTRA_NUMERIC = {
     "SPEED_THROUGH_WATER": "stw",
     "AVG_SPEED": "sog",
+    "HORSE_POWER": "horse_power",
+    "HOURS_TOTAL": "hours_total",
     "SEA_HEIGHT": "sea_height",
     "SWELL_HEIGHT": "swell_height",
     "SEA_WATER_TEMP": "sea_water_temp",
@@ -125,7 +129,13 @@ def load_vt_fd(path: Path) -> tuple[pd.DataFrame, pd.DataFrame]:
 
 def load_maintenance(path: Path) -> pd.DataFrame:
     """→ canonical events（複合事件拆成主事件＋附屬事件兩列）。"""
-    mt = pd.read_csv(path, parse_dates=["event_date"])
+    mt = pd.read_csv(path)
+    if "event_date" in mt.columns:
+        mt["event_date"] = pd.to_datetime(mt["event_date"])
+    elif "event_day" in mt.columns:
+        mt["event_date"] = EPOCH + pd.to_timedelta(_num(mt["event_day"]), unit="D")
+    else:
+        raise ValueError("maintenance.csv 缺少 event_date 或 event_day")
     rows = []
     for _, r in mt.iterrows():
         notes_parts = []

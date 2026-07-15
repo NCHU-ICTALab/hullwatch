@@ -1,15 +1,8 @@
-import { Menu, Settings } from 'lucide-react'
+import { Settings } from 'lucide-react'
 import type { ShipDetail } from '../types'
 
 export function DashboardToolsMenu({ onSettings }: { onSettings: () => void }) {
-  return (
-    <details className="tool-menu">
-      <summary><Menu size={16} />工具</summary>
-      <div>
-        <button onClick={onSettings}><Settings size={16} />設定</button>
-      </div>
-    </details>
-  )
+  return <button type="button" className="icon-button" onClick={onSettings}><Settings size={16} />設定</button>
 }
 
 export function AttributionSplitBar({ attribution }: { attribution: ShipDetail['hull_prop'] }) {

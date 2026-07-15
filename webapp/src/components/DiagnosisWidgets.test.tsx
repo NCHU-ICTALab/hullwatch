@@ -23,6 +23,8 @@ describe('DashboardToolsMenu', () => {
     const html = renderToStaticMarkup(<DashboardToolsMenu onSettings={() => undefined} />)
 
     expect(html).toContain('設定')
+    expect(html).not.toContain('<details')
+    expect(html).not.toContain('工具')
     expect(html).not.toContain('水下判讀')
   })
 })

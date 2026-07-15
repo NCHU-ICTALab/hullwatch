@@ -63,13 +63,20 @@ export interface ForecastPoint {
 export interface ShipDetail {
   ship_id: string
   ship_name: string
+  date_provenance: {
+    source_time_axis: 'NOON_UTC/event_day relative day'
+    display_mapping: 'Day 0 = 2021-01-01'
+    real_calendar_dates: false
+  }
   status: Status
   fouling_level: string
   hull_prop: { hull_pp: number; prop_pp: number; prop_share: number }
   current: {
+    as_of: string
     speed_loss_pct: number
     avg_speed: number | null
     days_since_clean: number
+    days_since_clean_basis: 'event' | 'dataset_start'
     growth_pp_per_day: number
     days_to_threshold: number | null
     excess_cost_per_day: number
@@ -79,6 +86,7 @@ export interface ShipDetail {
     wind_scale: number | null
     full_speed_hours: number | null
     last_event: { date: string; type: string } | null
+    last_clean_event: { date: string; type: 'cleaning' | 'drydock' } | null
     threshold_pct: number
   }
   kpi_sparks: {
@@ -116,6 +124,56 @@ export interface ForecastResponse {
   forecast: ForecastPoint[]
 }
 
+export type SpeedLossLoadCondition = 'all' | 'laden' | 'ballast'
+
+export interface SpeedLossPredictionGroup {
+  load_condition: Exclude<SpeedLossLoadCondition, 'all'>
+  load_label: string
+  available: boolean
+  reason: string | null
+  counts: Record<string, number>
+  baseline: null | {
+    sample_fraction: number
+    rows: number
+    intercept: number
+    horse_power_cuberoot_slope: number
+    r_squared: number | null
+  }
+  current_speed_loss_pct: number | null
+  deterioration_rate_pct_per_month: number | null
+  latest_day: number | null
+  latest_cleaning_day: number | null
+  cleaning_days: number[]
+  threshold_crossing: {
+    eta_days: number | null
+    earliest_days: number | null
+    latest_days: number | null
+  }
+  history: { day: number; speed_loss_pct: number; observations: number }[]
+  trend: { day: number; mid: number }[]
+  forecast: { day: number; mid: number; lo: number; hi: number }[]
+}
+
+export interface SpeedLossPredictionResponse {
+  ship_id: string
+  method: 'per-ship-load-stw-horsepower-ols'
+  time_axis: string
+  day0_note: string
+  available: boolean
+  reason: string | null
+  parameters: {
+    forecast_days: number
+    threshold_pct: number
+    max_wind_scale: number
+    load_condition: SpeedLossLoadCondition
+    confidence_level: number
+    confidence_z: number
+  }
+  filter_counts: Record<string, number>
+  displacement_median: number | null
+  groups: SpeedLossPredictionGroup[]
+}
+
 export interface RoiResponse {
   target: {
     ship_id: string
@@ -148,10 +206,21 @@ export interface RoiResponse {
   }
 }
 
+export interface ScheduleActionOption {
+  action: 'PP' | 'UWC' | 'UWC+PP'
+  speed_loss_recovery_pp: number
+  post_clean_speed_loss_pct: number
+  action_cost_usd: number
+  payback_days: number | null
+  daily_fuel_saving_tons: number
+  monthly_saving_usd: number
+}
+
 export interface ScheduleItem {
   ship_id: string
   ship_name: string
   action: 'PP' | 'UWC' | 'UWC+PP'
+  action_options: ScheduleActionOption[]
   window_start: string
   window_end: string
   speed_loss_recovery_pp: number

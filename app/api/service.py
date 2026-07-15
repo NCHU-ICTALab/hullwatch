@@ -19,6 +19,11 @@ from app.api.notifications import NotificationSubscriptionStore
 from app.pipeline.baseline import CleanBaselineModel
 from app.pipeline.features import build_features
 from app.pipeline.roi import POST_CLEAN_SL_PCT, RoiParams, days_to_threshold, whatif_curve
+from app.pipeline.speed_loss_prediction import (
+    REQUIRED_SOURCE_COLUMNS,
+    LoadCondition,
+    predict_speed_loss,
+)
 
 FORECAST_WEEKS = 16
 HISTORY_WEEKS = 78  # 圖表顯示最近 18 個月
@@ -62,6 +67,18 @@ class FleetService:
         self.model_packages = ModelPackageStore(d / "model-packages")
         self.notification_subscriptions = NotificationSubscriptionStore(
             d / "notification-subscriptions.json"
+        )
+        strict_source_path = d.parent / "raw" / "noon_reports.csv"
+        self.speed_loss_source = (
+            pd.read_csv(strict_source_path)
+            if strict_source_path.exists()
+            else pd.DataFrame()
+        )
+        self.speed_loss_source_missing_columns = sorted(
+            REQUIRED_SOURCE_COLUMNS - set(self.speed_loss_source.columns)
+        )
+        self.speed_loss_source_ready = bool(
+            len(self.speed_loss_source) and not self.speed_loss_source_missing_columns
         )
 
     # ---------- model registry ----------
@@ -174,6 +191,26 @@ class FleetService:
             "forecast": forecast,
         }
 
+    def speed_loss_prediction(
+        self,
+        ship_id: str,
+        forecast_days: int = 180,
+        threshold_pct: float = 8.0,
+        max_wind_scale: float = 4.0,
+        load_condition: LoadCondition = "all",
+    ) -> dict:
+        """Recompute the strict STW/power OLS prediction from normalized raw."""
+        if self.fleet[self.fleet[schema.SHIP_ID] == ship_id].empty:
+            raise KeyError(ship_id)
+        return predict_speed_loss(
+            self.speed_loss_source,
+            ship_id,
+            forecast_days=forecast_days,
+            threshold_pct=threshold_pct,
+            max_wind_scale=max_wind_scale,
+            load_condition=load_condition,
+        )
+
     def register_model_package(self, manifest: str, artifact: bytes) -> dict:
         record = self.model_packages.register(manifest, artifact)
         booster, package = self.model_packages.load_booster(record["id"])
@@ -278,12 +315,39 @@ class FleetService:
             ]
             evaluated_actions = []
             for action_name, action_recovery, action_cost in action_options:
-                action_daily_saving = float(row.excess_cost_per_day) * action_recovery / current_sl
-                net_benefit = action_daily_saving * self.roi_params.horizon_days - action_cost
-                evaluated_actions.append(
-                    (net_benefit, action_name, action_recovery, action_cost, action_daily_saving)
+                bounded_recovery = min(max(float(action_recovery), 0.0), current_sl)
+                action_daily_saving = (
+                    float(row.excess_cost_per_day) * bounded_recovery / current_sl
                 )
-            _, action, recovery, action_cost, daily_saving = max(evaluated_actions, key=lambda item: item[0])
+                evaluated_actions.append({
+                    "action": action_name,
+                    "speed_loss_recovery_pp": round(bounded_recovery, 2),
+                    "post_clean_speed_loss_pct": round(
+                        max(float(row.current_speed_loss_pct) - bounded_recovery, 0.0), 2
+                    ),
+                    "action_cost_usd": round(action_cost),
+                    "payback_days": (
+                        round(action_cost / action_daily_saving, 1)
+                        if action_daily_saving > 0 else None
+                    ),
+                    "daily_fuel_saving_tons": round(
+                        action_daily_saving / self.roi_params.fuel_price_usd, 2
+                    ),
+                    "monthly_saving_usd": round(action_daily_saving * 30),
+                    "net_benefit_usd": round(
+                        action_daily_saving * self.roi_params.horizon_days - action_cost
+                    ),
+                })
+            selected_action = max(
+                evaluated_actions, key=lambda item: item["net_benefit_usd"]
+            )
+            action = selected_action["action"]
+            recovery = selected_action["speed_loss_recovery_pp"]
+            action_cost = selected_action["action_cost_usd"]
+            daily_saving = (
+                selected_action["daily_fuel_saving_tons"]
+                * self.roi_params.fuel_price_usd
+            )
 
             start = anchor + pd.Timedelta(days=int(best_day))
             backfill_row = ranked.iloc[(index + 1) % len(ranked)]
@@ -298,6 +362,10 @@ class FleetService:
                 "action_cost_usd": round(action_cost),
                 "monthly_saving_usd": round(daily_saving * 30),
                 "daily_fuel_saving_tons": round(daily_saving / self.roi_params.fuel_price_usd, 2),
+                "action_options": [
+                    {key: value for key, value in option.items() if key != "net_benefit_usd"}
+                    for option in evaluated_actions
+                ],
                 "inspection_recommended": curve["payback_days"] is None or decision_growth <= 0,
                 "backfill": {
                     "ship_id": backfill_row.ship_id,
@@ -513,11 +581,13 @@ class FleetService:
         reports = self.scored[self.scored[schema.SHIP_ID] == ship_id].sort_values(schema.REPORT_DATE)
         if reports.empty:
             return {"ship_id": ship_id, "days": days, "entries": []}
-        cutoff = reports[schema.REPORT_DATE].max() - pd.Timedelta(days=days - 1)
+        as_of = reports[schema.REPORT_DATE].max().normalize()
+        cutoff = as_of - pd.Timedelta(days=days - 1)
         reports = reports[reports[schema.REPORT_DATE] >= cutoff]
         events = self.events[
             (self.events[schema.EVENT_SHIP_ID] == ship_id)
             & (self.events[schema.EVENT_DATE] >= cutoff)
+            & (self.events[schema.EVENT_DATE] <= as_of)
         ]
         entries = [
             {
@@ -678,6 +748,11 @@ class FleetService:
         r = row.iloc[0]
         daily = self.scored[self.scored[schema.SHIP_ID] == ship_id].sort_values(schema.REPORT_DATE)
         latest_report = daily.iloc[-1] if len(daily) else None
+        as_of = (
+            pd.Timestamp(latest_report[schema.REPORT_DATE]).normalize()
+            if latest_report is not None
+            else pd.Timestamp(r.last_date).normalize()
+        )
         recent_daily = daily.tail(30)
         weekly = self._weekly(ship_id).tail(HISTORY_WEEKS)
         weekly = weekly.dropna(subset=["speed_loss_smooth"])
@@ -698,14 +773,38 @@ class FleetService:
             })
         if len(weekly) == 0:
             forecast = []
-        ev = self.events[(self.events[schema.EVENT_SHIP_ID] == ship_id)
-                         & (self.events[schema.EVENT_DATE] >= (dates.min() if len(dates) else pd.Timestamp.max))]
-        intervention_types = schema.RESET_EVENTS | schema.PARTIAL_RESET_EVENTS
-        all_events = self.events[
+        ev = self.events[
             (self.events[schema.EVENT_SHIP_ID] == ship_id)
-            & (self.events[schema.EVENT_TYPE].isin(intervention_types))
+            & (self.events[schema.EVENT_DATE] >= (
+                dates.min() if len(dates) else pd.Timestamp.max
+            ))
+            & (self.events[schema.EVENT_DATE] <= as_of)
+        ]
+        ship_events = self.events[
+            (self.events[schema.EVENT_SHIP_ID] == ship_id)
+            & (self.events[schema.EVENT_DATE] <= as_of)
         ].sort_values(schema.EVENT_DATE)
-        latest_event = all_events.iloc[-1] if len(all_events) else None
+        intervention_types = schema.RESET_EVENTS | schema.PARTIAL_RESET_EVENTS
+        maintenance_events = ship_events[
+            ship_events[schema.EVENT_TYPE].isin(intervention_types)
+        ]
+        clean_events = ship_events[
+            ship_events[schema.EVENT_TYPE].isin(schema.RESET_EVENTS)
+        ]
+        latest_event = maintenance_events.iloc[-1] if len(maintenance_events) else None
+        latest_clean_event = clean_events.iloc[-1] if len(clean_events) else None
+        if latest_clean_event is not None:
+            days_since_clean = max(
+                int((as_of - latest_clean_event[schema.EVENT_DATE].normalize()).days), 0
+            )
+            days_since_clean_basis = "event"
+        else:
+            dataset_start = (
+                pd.Timestamp(daily[schema.REPORT_DATE].min()).normalize()
+                if len(daily) else as_of
+            )
+            days_since_clean = max(int((as_of - dataset_start).days), 0)
+            days_since_clean_basis = "dataset_start"
         dtt = None if pd.isna(r.days_to_threshold) else int(r.days_to_threshold)
         status = classify_operational_status(float(r.current_speed_loss_pct), dtt)
         attribution = self._attribution(ship_id)
@@ -721,6 +820,11 @@ class FleetService:
                if len(self.effects) else pd.DataFrame())
         return {
             "ship_id": ship_id, "ship_name": r.ship_name,
+            "date_provenance": {
+                "source_time_axis": "NOON_UTC/event_day relative day",
+                "display_mapping": "Day 0 = 2021-01-01",
+                "real_calendar_dates": False,
+            },
             "status": status, "fouling_level": r.fouling_level,
             "hull_prop": hull_prop,
             "maintenance_effects": [
@@ -730,9 +834,11 @@ class FleetService:
                 for x in eff.itertuples()
             ],
             "current": {
+                "as_of": as_of.strftime("%Y-%m-%d"),
                 "speed_loss_pct": float(r.current_speed_loss_pct),
                 "avg_speed": round(float(latest_report[schema.AVG_SPEED]), 1) if latest_report is not None else None,
-                "days_since_clean": int(r.days_since_clean),
+                "days_since_clean": days_since_clean,
+                "days_since_clean_basis": days_since_clean_basis,
                 "growth_pp_per_day": float(r.growth_pp_per_day),
                 "days_to_threshold": dtt,
                 "excess_cost_per_day": float(r.excess_cost_per_day),
@@ -750,6 +856,10 @@ class FleetService:
                 "last_event": None if latest_event is None else {
                     "date": latest_event[schema.EVENT_DATE].strftime("%Y-%m-%d"),
                     "type": latest_event[schema.EVENT_TYPE],
+                },
+                "last_clean_event": None if latest_clean_event is None else {
+                    "date": latest_clean_event[schema.EVENT_DATE].strftime("%Y-%m-%d"),
+                    "type": latest_clean_event[schema.EVENT_TYPE],
                 },
                 "threshold_pct": config.CLEANING_THRESHOLD_PCT,
             },

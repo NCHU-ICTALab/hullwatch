@@ -5,8 +5,8 @@ import type { Status } from '../types'
 export type WorkflowView = 'fleet' | 'diagnose' | 'decide'
 
 const WORKFLOW_STEPS: { id: WorkflowView; number: string; label: string; caption: string }[] = [
-  { id: 'fleet', number: '1', label: '總覽', caption: 'FLEET' },
-  { id: 'diagnose', number: '2', label: '診斷', caption: 'DIAGNOSE' },
+  { id: 'fleet', number: '1', label: 'Speed Loss 總覽', caption: 'FLEET' },
+  { id: 'diagnose', number: '2', label: '日誌', caption: 'LOG' },
   { id: 'decide', number: '3', label: '決策', caption: 'DECIDE' },
 ]
 
@@ -26,7 +26,7 @@ export function WorkflowSteps({ currentView, selectedShip, onNavigate }: {
                 type="button"
                 disabled={locked}
                 aria-current={currentView === step.id ? 'step' : undefined}
-                aria-label={locked ? `${step.label}，請先從總覽選擇船舶` : step.label}
+                aria-label={locked ? `${step.label}，請先從 Speed Loss 總覽選擇船舶` : step.label}
                 onClick={() => onNavigate(step.id)}
               >
                 <span className="workflow-step-number" aria-hidden="true">{step.number}</span>
@@ -40,7 +40,7 @@ export function WorkflowSteps({ currentView, selectedShip, onNavigate }: {
         <span>{selectedShip ? '目前船舶' : '下一步'}</span>
         {selectedShip
           ? <strong>{selectedShip.ship_name}<small>{selectedShip.ship_id}</small></strong>
-          : <strong>請先從總覽選擇船舶</strong>}
+          : <strong>請先從 Speed Loss 總覽選擇船舶</strong>}
       </div>
     </nav>
   )

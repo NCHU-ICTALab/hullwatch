@@ -14,6 +14,8 @@ import type {
   RoiResponse,
   ScheduleResponse,
   ShipDetail,
+  SpeedLossLoadCondition,
+  SpeedLossPredictionResponse,
 } from './types'
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -50,6 +52,22 @@ export const api = {
     request<ForecastResponse>(
       `/api/ship/${encodeURIComponent(shipId)}/forecast?model=${encodeURIComponent(modelId)}&speed=${speed}`,
     ),
+  speedLossPrediction: (shipId: string, params: {
+    forecastDays: number
+    thresholdPct: number
+    maxWindScale: number
+    loadCondition: SpeedLossLoadCondition
+  }) => {
+    const query = new URLSearchParams({
+      forecast_days: String(params.forecastDays),
+      threshold_pct: String(params.thresholdPct),
+      max_wind_scale: String(params.maxWindScale),
+      load_condition: params.loadCondition,
+    })
+    return request<SpeedLossPredictionResponse>(
+      `/api/ship/${encodeURIComponent(shipId)}/speed-loss-prediction?${query.toString()}`,
+    )
+  },
   roi: (shipId: string, fuelPrice?: number, cleaningCost?: number, recoveryPp?: number) => request<RoiResponse>(
     `/api/roi?ship_id=${encodeURIComponent(shipId)}${fuelPrice ? `&fuel_price=${fuelPrice}` : ''}${cleaningCost ? `&cleaning_cost=${cleaningCost}` : ''}${recoveryPp !== undefined ? `&speed_loss_recovery_pp=${recoveryPp}` : ''}`,
   ),

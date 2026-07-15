@@ -175,6 +175,7 @@ def run_pipeline(raw_dir: Path | None = None, artifact_dir: Path | None = None,
     refs.to_csv(artifact_dir / "clean_refs.csv")
     effects.to_csv(artifact_dir / "maintenance_effects.csv", index=False)
     keep_cols = [schema.SHIP_ID, schema.REPORT_DATE, schema.AVG_SPEED, schema.DAILY_FOC,
+                 schema.WIND_SCALE, schema.HOURS_FULL_SPEED,
                  "days_since_clean", "baseline_flag", "expected_foc", "excess_foc",
                  "excess_foc_pct", "speed_loss_pct", "speed_loss_smooth", "excess_foc_smooth",
                  "attr_base_tons", "attr_speed_tons", "attr_wind_tons", "attr_draft_tons"]

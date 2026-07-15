@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react'
-import { LineChart } from 'echarts/charts'
+import { LineChart, ScatterChart } from 'echarts/charts'
 import {
+  DataZoomComponent,
   GridComponent,
   LegendComponent,
   MarkAreaComponent,
@@ -8,11 +9,18 @@ import {
   MarkPointComponent,
   TooltipComponent,
 } from 'echarts/components'
-import { init, use as registerECharts, type EChartsCoreOption } from 'echarts/core'
+import {
+  getInstanceByDom,
+  init,
+  use as registerECharts,
+  type EChartsCoreOption,
+} from 'echarts/core'
 import { CanvasRenderer } from 'echarts/renderers'
 
 registerECharts([
   LineChart,
+  ScatterChart,
+  DataZoomComponent,
   GridComponent,
   LegendComponent,
   MarkAreaComponent,
@@ -30,17 +38,24 @@ interface EChartProps {
 
 export function EChart({ option, className, ariaLabel }: EChartProps) {
   const elementRef = useRef<HTMLDivElement>(null)
+  const chartRef = useRef<ReturnType<typeof init> | null>(null)
 
   useEffect(() => {
-    if (!elementRef.current) return
-    const chart = init(elementRef.current)
-    chart.setOption(option)
+    const element = elementRef.current
+    if (!element) return
+    const chart = getInstanceByDom(element) ?? init(element)
+    chartRef.current = chart
     const observer = new ResizeObserver(() => chart.resize())
-    observer.observe(elementRef.current)
+    observer.observe(element)
     return () => {
       observer.disconnect()
+      if (chartRef.current === chart) chartRef.current = null
       chart.dispose()
     }
+  }, [])
+
+  useEffect(() => {
+    chartRef.current?.setOption(option, { notMerge: true })
   }, [option])
 
   return <div ref={elementRef} className={className} role="img" aria-label={ariaLabel} />

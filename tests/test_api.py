@@ -1,6 +1,7 @@
 """FastAPI 端點整合測試（stub LLM、本地檢索、小型合成資料）。"""
 
 import json
+from datetime import date
 
 import numpy as np
 import pytest
@@ -72,6 +73,19 @@ def test_ship_detail(client):
     assert len(d["series"]) > 20
     assert len(d["forecast"]) == 16
     assert d["forecast"][0]["lo"] < d["forecast"][0]["mid"] < d["forecast"][0]["hi"]
+    current = d["current"]
+    assert current["as_of"]
+    assert current["wind_scale"] is not None
+    assert current["last_event"] is None or current["last_event"]["date"] <= current["as_of"]
+    if current["last_clean_event"]:
+        assert current["last_clean_event"]["type"] in {"cleaning", "drydock"}
+        assert current["days_since_clean"] == (
+            date.fromisoformat(current["as_of"])
+            - date.fromisoformat(current["last_clean_event"]["date"])
+        ).days
+        assert current["days_since_clean_basis"] == "event"
+    else:
+        assert current["days_since_clean_basis"] == "dataset_start"
     assert client.get("/api/ship/NOPE").status_code == 404
 
 
@@ -165,6 +179,15 @@ def test_schedule_returns_read_only_recommendations_for_the_fleet(client):
     assert recommendation["speed_loss_recovery_pp"] >= 0
     assert recommendation["read_only"] is True
     assert "backfill" in recommendation
+    assert {option["action"] for option in recommendation["action_options"]} == {
+        "PP", "UWC", "UWC+PP",
+    }
+    assert all(
+        option["post_clean_speed_loss_pct"] <= recommendation["speed_loss_pct"]
+        and option["daily_fuel_saving_tons"] >= 0
+        and option["monthly_saving_usd"] >= 0
+        for option in recommendation["action_options"]
+    )
 
 
 def test_schedule_exposes_ninety_day_history_and_sort_fields(client):

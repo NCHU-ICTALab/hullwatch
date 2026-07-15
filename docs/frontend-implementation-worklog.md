@@ -247,3 +247,24 @@
 - 原檔內含 32／64／128 px、32-bit 三組 frame；public 與 private 副本和來源檔 SHA-256 均為 `b4fcbff7a6dc8bb78eeef9bd2442bf4f90d95e3ee1c795f755a753fc5e6875de`。既有 `object-fit: contain` 與無負位移 CSS 保留，64 px loading 可直接使用原生 frame。
 - private `data/assets/branding/Oi.ico` 已同步，以 `data/assets/**/*.ico` 規則交由 Git LFS 追蹤，並重新產生 39-file checksum manifest。回歸測試會驗證 ICO header、64／128 px frame、元件引用與 favicon 引用。
 - 驗證：rebase 遠端 AI 顧問 SSE 串流與工具防護提交後，Vitest **31 passed**、oxlint 0 warnings／0 errors、TypeScript + Vite production build 通過、Python **84 passed**（1 個既有 deprecation warning）；private tests **11 passed**、39 shared files manifest 綠。Vite 既有大 chunk warning仍在；完整 loading 實畫面仍需部署後人工目視。
+
+## 2026-07-16 第十八批：日誌／決策 IA 與資料日期一致性
+
+- AI 顧問：回答區補齊 `min-width: 0`、最大寬度、長字串換行與局部表格／程式碼捲動，長 URL 或 Markdown 不再撐寬側欄；輸入框支援 Enter 送出、Shift+Enter 換行，IME 組字確認期間不誤送。
+- 資料日期：單船 API 以每艘船最後一筆合格正午日報作 `as_of`，所有事件與 30 日誌均截斷於該日；「距上次船體清潔」只回推 `cleaning`／`drydock`，另以「最近維護動作」顯示清洗、塢修或螺旋槳拋光，避免把純檢查混成維護介入。
+- 風級：pipeline 的 `scored.csv` 正式保留 `wind_scale` 與 `hours_full_speed`；public 本地與 private `hullwatch-data` runtime artifacts 均已重建。Private manifest 維持 39 files 並通過 checksum；使用者既有 `.gitignore` 修改未碰觸。
+- 資訊架構：工作流改名為「Speed Loss 總覽 → 日誌 → 決策」；單一工具直接顯示「設定」。日誌頁只保留截至日 KPI、歷史 Speed Loss、事件、歸因與正午日報，模型選擇和船速情境移至決策頁。
+- 預測與試算：決策頁只顯示一個主模型的 Speed Loss 預測，不再做視覺模型比較；不使用船速的模型會明確說明並隱藏無效控制。原「清洗日淨節省曲線」改為 PP／UWC／UWC+PP 三種立即清潔效益卡，呈現清潔後 Speed Loss、每日省油、每月節省與回本期，並標示為 clean-baseline 情境推估。
+- 語意審查後補修：日誌排除未來事件；UWI 純檢查不再蓋掉最近實際維護；決策返回按鈕改為「查看單船日誌」。
+- 驗證：Python **84 passed**（1 則既有 Starlette/httpx deprecation warning）；Vitest **36 passed**；`npm run lint` 與 production build 通過。Vite 仍有既有主 bundle >500kB warning（約 961kB／gzip 311kB）。Private data repo **11 passed**、39-file manifest verified；真 artifacts smoke 顯示風級、資料截至日、清潔基準與三方案欄位皆可讀。
+## 2026-07-16 第十九批：逐船／載況 STW－功率 Speed Loss 預測
+
+- 首頁內容大標題由「船隊健康總覽」精確改為「Speed Loss 總覽」。
+- ingestion 保留 `stw`、`horse_power`、`hours_total`、`displacement` 與 numeric `day`；strict predictor 直接讀 normalized raw，不使用已被固定油耗／天候篩掉資料的 `scored.csv`。原始 `maintenance.csv` 同時支援 `event_day` 與 `event_date` 輸入。
+- 新增獨立 `/api/ship/{id}/speed-loss-prediction`：逐船依 DISPLACEMENT 中位拆重載／壓艙，各自用最早 30% 的 `STW = a + b·HORSE_POWER^(1/3)` OLS 建基準；排除 -8%～45% 外值、7 日平均箱、偵測 >3pp 非尾端下跳、最近清洗後趨勢 OLS、90% 平均反應信賴帶與門檻 earliest／ETA／latest。`all` 回兩組模型，永不混合。
+- 決策頁移除舊主模型／情境船速控制，改為預測天數、清底門檻、風級上限與載況；四個讀數顯示目前 SL、%／月、距門檻與清底範圍。主圖以 NOON_UTC relative day 顯示量測點線、趨勢、外推、信賴錐、門檻與交叉點。
+- a11y：所有 controls 使用原生 label／range／number／fieldset／button 與 `aria-pressed`；canvas 圖另提供可展開的重載／壓艙資料表，loading/error/unavailable 有 `aria-live`／`role=alert`。方法區明列 STW 非 SOG、自建基準偏差、篩選、STW 計程儀校準、無舵角 proxy 與相對日期限制。
+- 日期真實性修正：`vt_fd.csv` 的 `NOON_UTC` 與 `maintenance.csv` 的 `event_day` 都只有相對日；`2021-01-01 + day` 只是 legacy display surrogate，不能宣稱真實 2021–2025 日曆。新決策 API／圖表只使用 Day N，ETA 以距最新紀錄天數表示；單船 API 另回傳明確 date provenance，畫面提示只涵蓋船舶／養護／排程，市場行情保留外部來源真實日期。
+- 部署 readiness：`/api/health` 分開揭露 artifacts 與 strict normalized raw 是否 ready、列數及缺欄，避免 artifacts-only 部署靜默顯示所有 Speed Loss 預測 unavailable。
+- 修復決策頁白屏：tree-shaken ECharts 補註冊 `ScatterChart`／`DataZoomComponent`；共用 wrapper 將 instance lifecycle 與 option 更新分離，避免 `setOption` 失敗後 StrictMode 重複 init。runtime harness 由缺模組紅燈轉為 `DECISION_CHART_OK`。
+- 真資料 smoke：15 船共 30 個 laden／ballast groups，其中 20 組 available；S1、S4、S21 等最新非尾端清洗後不足 3 bins 的 10 組明確 unavailable，不回退舊趨勢。回應可 JSON strict serialize；FastAPI 正常 200、參數越界 422、未知船 404。驗證為 Python **84 passed**、Vitest **36 passed**、oxlint／production build 綠；private tests **11 passed**、Wiki 34 pages／10-of-10 evaluation、39-file manifest 綠。Vite 大 chunk warning與 in-app Browser 無 backend 的人工視覺 QA 待辦仍存在。
