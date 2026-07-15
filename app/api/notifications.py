@@ -39,18 +39,28 @@ class NotificationSubscriptionStore:
         *,
         ses_from_email: str | None = None,
         discord_webhook_url: str | None = None,
+        email_queue_url: str | None = None,
+        email_queue_from: str | None = None,
         ses_client_factory: Callable[[], object] | None = None,
         discord_client_factory: Callable[[], object] | None = None,
+        sqs_client_factory: Callable[[], object] | None = None,
     ):
         self.path = Path(path)
         self._lock = RLock()
         self.ses_from_email = config.SES_FROM_EMAIL if ses_from_email is None else ses_from_email
         self.discord_webhook_url = config.DISCORD_WEBHOOK_URL if discord_webhook_url is None else discord_webhook_url
+        # SQS 寄信中繼（主辦方帳號的 emailQueue）：設定後 email 一律走中繼，
+        # 收件者不受 SES sandbox 驗證限制；留空退回直寄 SES。
+        self.email_queue_url = config.EMAIL_QUEUE_URL if email_queue_url is None else email_queue_url
+        self.email_queue_from = config.EMAIL_QUEUE_FROM if email_queue_from is None else email_queue_from
         self.ses_client_factory = ses_client_factory or (
             lambda: boto3.client("ses", region_name=config.SES_REGION)
         )
         self.discord_client_factory = discord_client_factory or (
             lambda: httpx.Client(timeout=8, follow_redirects=True)
+        )
+        self.sqs_client_factory = sqs_client_factory or (
+            lambda: boto3.client("sqs", region_name="us-east-1")
         )
 
     def _load(self) -> list[dict]:
@@ -134,7 +144,7 @@ class NotificationSubscriptionStore:
 
     def channel_status(self) -> dict[str, str]:
         return {
-            "ses": "configured" if self.ses_from_email else "not_configured",
+            "ses": "configured" if (self.email_queue_url or self.ses_from_email) else "not_configured",
             # discord 一律可用：系統 webhook（configured）或訂閱者自填（self_service）
             "discord": "configured" if self.discord_webhook_url else "self_service",
         }
@@ -144,6 +154,22 @@ class NotificationSubscriptionStore:
     def _deliver(self, subscription: dict, subject: str, message: str) -> dict:
         channel = subscription["channel"]
         if channel == "email":
+            if self.email_queue_url:  # 主辦方 SQS 中繼（SESv2 payload），免 sandbox 驗證
+                payload = {
+                    "FromEmailAddress": self.email_queue_from,
+                    "Destination": {"ToAddresses": [subscription["destination"]]},
+                    **({"ReplyToAddresses": [self.ses_from_email]} if self.ses_from_email else {}),
+                    "Content": {"Simple": {
+                        "Subject": {"Charset": "UTF-8", "Data": subject},
+                        "Body": {"Text": {"Charset": "UTF-8", "Data": message}},
+                    }},
+                }
+                response = self.sqs_client_factory().send_message(
+                    QueueUrl=self.email_queue_url,
+                    MessageBody=json.dumps(payload, ensure_ascii=False),
+                )
+                return {"delivered": True, "status": "delivered", "channel": channel,
+                        "via": "sqs-relay", "message_id": response.get("MessageId")}
             if not self.ses_from_email:
                 return {"delivered": False, "status": "not_configured", "channel": channel}
             response = self.ses_client_factory().send_email(
@@ -240,7 +266,8 @@ class NotificationSubscriptionStore:
         subscription = next((item for item in self._load() if item["id"] == subscription_id), None)
         if subscription is None:
             raise KeyError(subscription_id)
-        if subscription["channel"] == "email" and self.ses_from_email:
+        if subscription["channel"] == "email" and self.ses_from_email \
+                and not self.email_queue_url:  # 中繼免驗證，直接寄
             status = self.email_verification_status(subscription["destination"])
             if status == "unknown":
                 # 無查詢權限：直接嘗試寄，被 sandbox 拒收再退驗證流程

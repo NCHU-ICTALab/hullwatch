@@ -227,3 +227,42 @@ def test_discord_welcome_skips_verification(tmp_path):
     sub = store.create("discord", "https://discord.com/api/webhooks/1/a-b_c", ["HW-001"])
     result = store.send_welcome_or_request_verification(sub["id"], _ships_status(), 5.0)
     assert result["delivered"] is True and discord.calls
+
+
+class FakeSqsClient:
+    def __init__(self):
+        self.messages = []
+
+    def send_message(self, QueueUrl, MessageBody):
+        self.messages.append((QueueUrl, json.loads(MessageBody)))
+        return {"MessageId": "sqs-msg-1"}
+
+
+def test_email_relay_via_sqs_bypasses_sandbox(tmp_path):
+    ses = FakeSesWithVerification()   # 完全沒有已驗證信箱
+    sqs = FakeSqsClient()
+    store = NotificationSubscriptionStore(
+        tmp_path / "subscriptions.json",
+        ses_from_email="team@example.com",
+        email_queue_url="https://sqs.us-east-1.amazonaws.com/905418031238/emailQueue",
+        email_queue_from="HullWatch <events@awsug.net>",
+        ses_client_factory=lambda: ses,
+        sqs_client_factory=lambda: sqs,
+    )
+    sub = store.create("email", "totally.new@example.com", ["HW-001"])
+    # 中繼模式：新信箱直接送達，不觸發驗證流程、不直寄 SES
+    result = store.send_welcome_or_request_verification(sub["id"], _ships_status(), 5.0)
+    assert result["delivered"] is True and result.get("via") == "sqs-relay"
+    assert ses.calls == [] and ses.verify_requests == []
+    url, payload = sqs.messages[0]
+    assert url.endswith("/905418031238/emailQueue")
+    assert payload["Destination"]["ToAddresses"] == ["totally.new@example.com"]
+    assert payload["FromEmailAddress"] == "HullWatch <events@awsug.net>"
+    assert payload["Content"]["Simple"]["Subject"]["Data"] == "HullWatch 訂閱確認"
+    assert "訂閱確認" in payload["Content"]["Simple"]["Body"]["Text"]["Data"]
+
+    # 日報更新通知同樣走中繼
+    out = store.notify_noon_report_updates(
+        [{"ship_id": "HW-001", "ship_name": "Alpha",
+          "report_date": "2026-07-15", "speed_loss_pct": 8.0}], _ships_status(), 5.0)
+    assert out["notified"] == 1 and len(sqs.messages) == 2
