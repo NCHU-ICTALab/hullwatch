@@ -110,7 +110,7 @@
 - **視覺 tokens**：儀器白底 `#F4F6F8`、主色深青 `#0E5E6F`、信號琥珀 `#C77400`、危險紅 `#A33B2E`；KPI＝等寬大讀數（tabular-nums）＋單位小標＋狀態形狀燈（▲●○■＋文字，不只靠色）；2px 實邊分區、無陰影堆疊；黑體字系、標題粗壯；圖表筆畫較粗、門檻以淡紅帶狀底呈現。
 - **參考原型**：`code/design-variants/variant-b-bridge-ops.html`（單檔可開，含深色主題與全部關鍵畫面），實作以其為視覺基準翻成 React 元件。
 
-品牌於 2026-07-15 後續決策更新為 **Oi! Hullwatch**，標語 **Oi! Save the Oil.**；Header 使用無附加文字、正方形的 `oi-hullwatch-symbol.svg`，以 `object-fit: contain` 完整顯示，不以負位移裁切展示 mockup。標語以灰色小字呈現。
+品牌於 2026-07-15 後續決策更新為 **Oi! Hullwatch**，標語 **Oi! Save the Oil.**；Header、loading 與 browser favicon 直接共用使用者修正完成的 `Oi.ico`，以 `object-fit: contain` 完整顯示，不再從展示 mockup 裁切或重繪。標語以灰色小字呈現。
 
 AI 顧問 panel 提供 10 個可鍵盤操作的建議提問，涵蓋船隊優先序、單船 KPI、維護建議、狀態門檻、維護動作、Speed Loss、成本碳排、油價、模型與正午日報。選取後將完整問題帶入輸入框並保留人工確認；建議按鈕以 `aria-label`／`title` 提供完整問題，不只顯示短標籤。
 

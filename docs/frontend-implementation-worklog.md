@@ -240,3 +240,10 @@
 - 新增 `/api/advisor` 10 題實際回答回歸測試，並擴充 scripted fallback 的對應回答。Bedrock 未啟用或 agent 失敗時，不再把維護代碼、油價或模型問題錯誤回成清洗優先序；回答仍明確屬 template，不冒充 LLM。
 - private Wiki 新增 `evals/customer-support-golden.json` 與 `wiki_context.py evaluate`，以與 UI 對齊的 10 題驗證四頁 context 預算內的預期來源與必要回答詞，目前 **10/10（100%）**。油價題首次揭露 Wiki 缺少 6 小時快取／24 小時 stale 與 request-driven 更新語意，已補入以 raw API snapshot 與 commit-pinned code snapshot 為來源的 FAQ。
 - 驗證：Vitest **31 passed**、oxlint 0 warnings／0 errors、TypeScript + Vite production build 通過；Python **83 passed**（1 個既有 Starlette deprecation warning）；private tests **11 passed**、Wiki **10/10**、34 pages validator、39 shared files manifest 全綠。Vite 既有大 chunk warning仍在；in-app Browser backend 為空，SVG 靜態結構與無裁切回歸已驗證，完整 loading 實畫面仍需本機目視。
+
+## 2026-07-15 第十七批：改用使用者修正的 Oi.ico
+
+- Header、loading 與 browser favicon 改為直接共用根目錄提供的 `Oi.ico`；移除前一批描製 SVG 與 Vite 預設 `favicon.svg`，不再維護品牌圖示衍生版本。
+- 原檔內含 32／64／128 px、32-bit 三組 frame；public 與 private 副本和來源檔 SHA-256 均為 `b4fcbff7a6dc8bb78eeef9bd2442bf4f90d95e3ee1c795f755a753fc5e6875de`。既有 `object-fit: contain` 與無負位移 CSS 保留，64 px loading 可直接使用原生 frame。
+- private `data/assets/branding/Oi.ico` 已同步，以 `data/assets/**/*.ico` 規則交由 Git LFS 追蹤，並重新產生 39-file checksum manifest。回歸測試會驗證 ICO header、64／128 px frame、元件引用與 favicon 引用。
+- 驗證：rebase 遠端 AI 顧問 SSE 串流與工具防護提交後，Vitest **31 passed**、oxlint 0 warnings／0 errors、TypeScript + Vite production build 通過、Python **84 passed**（1 個既有 deprecation warning）；private tests **11 passed**、39 shared files manifest 綠。Vite 既有大 chunk warning仍在；完整 loading 實畫面仍需部署後人工目視。

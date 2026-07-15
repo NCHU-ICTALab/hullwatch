@@ -10,7 +10,7 @@ describe('BrandIdentity', () => {
 
     expect(html).toContain('Oi! Hullwatch')
     expect(html).toContain('Oi! Save the Oil.')
-    expect(html).toContain('/oi-hullwatch-symbol.svg')
+    expect(html).toContain('/Oi.ico')
     expect(html).not.toContain('FLEET PERFORMANCE')
   })
 
@@ -21,12 +21,20 @@ describe('BrandIdentity', () => {
     expect(css).toContain('.loading-screen .brand-icon-crop img { width: 100%; height: 100%; object-fit: contain; }')
   })
 
-  it('ships a square symbol without the source mockup caption', () => {
-    const svg = readFileSync(new URL('../../public/oi-hullwatch-symbol.svg', import.meta.url), 'utf8')
+  it('ships the user-provided Windows icon asset', () => {
+    const icon = readFileSync(new URL('../../public/Oi.ico', import.meta.url))
+    const frameCount = icon.readUInt16LE(4)
+    const widths = Array.from({ length: frameCount }, (_, index) => {
+      const width = icon[6 + index * 16]
+      return width === 0 ? 256 : width
+    })
 
-    expect(svg).toContain('viewBox="0 0 512 512"')
-    expect(svg).not.toContain('Web icon')
-    expect(svg).not.toContain('<text')
-    expect(svg).toContain('fill-rule="evenodd"')
+    expect([...icon.subarray(0, 4)]).toEqual([0, 0, 1, 0])
+    expect(widths).toContain(64)
+    expect(widths).toContain(128)
+
+    const indexHtml = readFileSync(new URL('../../index.html', import.meta.url), 'utf8')
+    expect(indexHtml).toContain('type="image/x-icon" href="/Oi.ico"')
+    expect(indexHtml).not.toContain('/favicon.svg')
   })
 })
