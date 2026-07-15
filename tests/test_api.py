@@ -119,6 +119,18 @@ def test_model_registry_exposes_one_primary_and_comparison_models(client):
     )
 
 
+def test_builtin_forecast_model_can_become_the_decision_model(client):
+    response = client.post("/api/models/persistence/activate")
+
+    assert response.status_code == 200
+    registry = client.get("/api/models").json()
+    assert registry["active_model_id"] == "persistence"
+    assert [
+        model["id"] for model in registry["models"] if model["is_primary"]
+    ] == ["persistence"]
+    assert client.post("/api/models/restore").status_code == 200
+
+
 def test_ship_forecast_supports_registered_model_and_scenario_speed(client):
     ship_id = client.get("/api/fleet").json()["ships"][0]["ship_id"]
 

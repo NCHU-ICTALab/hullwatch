@@ -129,3 +129,13 @@
 - a11y：面板與通知匣均有 `aria-expanded`／`aria-controls`、命名區域、可見焦點、Esc 行為、關閉後焦點復原；窄螢幕不以 overlay 遮蓋主內容。
 - 驗證：Vitest **4 passed**；`npm run lint` 與 production build 通過。Vite 主 bundle code-splitting warning 仍在。
 - 視覺 QA：再次依 in-app Browser 流程檢查，但可用 backend 列表為空；未使用其他瀏覽器工具繞過。需由使用者本機確認實際圖表標記間距、桌面 push 與 900px 以下切頁效果。
+
+## 2026-07-15 第五批：P0 模型交接與主模型切換修復
+
+- 「決策主模型」下拉選單原本用 `is_primary` 同時判斷選項與 disabled；registry 契約恰好只有一個 primary，導致選單永遠停用且只有一個 option。修正為列出 active／available／validated 模型，排除 candidate／rejected。
+- 主模型切換不再只是 React 本地狀態；現在會呼叫 activate API、持久化唯一 active model、刷新模型與 schedule。API 失敗時回復原選擇並顯示錯誤。
+- 內建 `linear-growth`、`physics-scenario`、`persistence` 均可被設為 active；已驗證的上傳模型仍沿用原驗證門檻。
+- 新增 `scripts/export_p0_models.py`：匯出 `speed-loss-baseline` 與 `fuel102-ensemble`，產生 manifest、特徵順序、sample、SHA-256 與 tar.gz，並逐一載入驗證所有 XGBoost JSON。
+- 真資料正式匯出結果：baseline 1 個模型；fuel ensemble 10 個成員＋1 個低速 fallback；壓縮交接包約 3.2MB，位於 gitignored `data/sagemaker-p0.tar.gz`。
+- P0 模型目標與 SageMaker 推論契約記錄於 `docs/p0-sagemaker-handoff.md`。
+- 最終驗證：Python **70 passed**；前端 Vitest **5 passed**；`npm run lint` 與 production build 通過。既有 Starlette/httpx deprecation 與 Vite bundle code-splitting warning 仍在。

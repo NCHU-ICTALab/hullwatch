@@ -223,6 +223,17 @@ class FleetService:
         return self.model_packages.update_validation(record["id"], validation)
 
     def activate_model(self, model_id: str) -> dict:
+        builtins = {
+            model["id"]: model
+            for model in self.model_registry()["models"]
+            if model.get("model_format") == "builtin"
+        }
+        if model_id in builtins:
+            self.model_packages.activate_builtin(model_id)
+            return next(
+                model for model in self.model_registry()["models"]
+                if model["id"] == model_id
+            )
         return self.model_packages.activate(model_id)
 
     def restore_builtin_model(self) -> dict:

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { allocateEventLanes, cleaningSavings, fuelHistoryForGrade, layoutTrendEventMarkers } from './dashboardLogic'
-import type { FuelPriceResponse } from './types'
+import { allocateEventLanes, cleaningSavings, decisionModelOptions, fuelHistoryForGrade, layoutTrendEventMarkers } from './dashboardLogic'
+import type { FuelPriceResponse, ModelInfo } from './types'
 
 describe('dashboard behavior', () => {
   it('places overlapping maintenance events in separate lanes', () => {
@@ -33,5 +33,27 @@ describe('dashboard behavior', () => {
     expect(result.map(({ lane }) => lane)).toEqual([0, 1, 2])
     expect(new Set(result.map(({ y }) => y)).size).toBe(3)
     expect(result.map(({ abbreviation }) => abbreviation)).toEqual(['UWC', 'PP', 'UWI'])
+  })
+
+  it('allows every usable forecast model to be selected as the decision model', () => {
+    const model = (id: string, isPrimary: boolean, status: ModelInfo['status'] = 'available'): ModelInfo => ({
+      id,
+      name: id,
+      description: `${id} forecast`,
+      validation_mape: null,
+      needs_speed: false,
+      is_primary: isPrimary,
+      status,
+    })
+
+    const options = decisionModelOptions([
+      model('linear-growth', true, 'active'),
+      model('physics-scenario', false),
+      model('persistence', false),
+      model('unvalidated-upload', false, 'candidate'),
+      model('failed-upload', false, 'rejected'),
+    ])
+
+    expect(options.map(({ id }) => id)).toEqual(['linear-growth', 'physics-scenario', 'persistence'])
   })
 })

@@ -1,4 +1,4 @@
-import type { FuelPriceResponse, ScheduleResponse, ShipDetail } from './types'
+import type { FuelPriceResponse, ModelInfo, ScheduleResponse, ShipDetail } from './types'
 
 export const EVENT_LANE_HEIGHT = 24
 const EVENT_LABEL_CLEARANCE_DAYS = 14
@@ -20,6 +20,10 @@ export function cleaningSavings(noCleanAverage: number, costs: number[]) {
 
 export function fuelHistoryForGrade(fuel: FuelPriceResponse, grade: string) {
   return fuel.history_by_grade[grade] ?? []
+}
+
+export function decisionModelOptions(models: ModelInfo[]) {
+  return models.filter((model) => model.status !== 'candidate' && model.status !== 'rejected')
 }
 
 export function layoutTrendEventMarkers(events: ShipDetail['events'], baseY: number) {

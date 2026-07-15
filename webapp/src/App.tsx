@@ -21,7 +21,7 @@ import {
 import type { EChartsOption } from 'echarts'
 import { api } from './api'
 import { EChart } from './components/EChart'
-import { allocateEventLanes, cleaningSavings, EVENT_LANE_HEIGHT, fuelHistoryForGrade, layoutTrendEventMarkers } from './dashboardLogic'
+import { allocateEventLanes, cleaningSavings, decisionModelOptions, EVENT_LANE_HEIGHT, fuelHistoryForGrade, layoutTrendEventMarkers } from './dashboardLogic'
 import type {
   AdvisorResponse,
   AlertsResponse,
@@ -76,6 +76,7 @@ function App() {
   const [alertOpen, setAlertOpen] = useState(false)
   const [advisorOpen, setAdvisorOpen] = useState(false)
   const [decisionFocusKey, setDecisionFocusKey] = useState(0)
+  const [primaryModelBusy, setPrimaryModelBusy] = useState(false)
   const [tool, setTool] = useState<Tool>(null)
   const [refreshVersion, setRefreshVersion] = useState(0)
   const [loading, setLoading] = useState(true)
@@ -215,6 +216,22 @@ function App() {
     setVisibleModels(result.models.filter((model) => model.status !== 'rejected').slice(0, 2).map((model) => model.id))
   }
 
+  const changePrimaryModel = async (modelId: string) => {
+    if (modelId === primaryModel || primaryModelBusy) return
+    const previousModel = primaryModel
+    setPrimaryModel(modelId)
+    setPrimaryModelBusy(true)
+    try {
+      await api.activateModel(modelId)
+      await refreshModels()
+    } catch (reason) {
+      setPrimaryModel(previousModel)
+      setError(reason instanceof Error ? reason.message : '主模型切換失敗')
+    } finally {
+      setPrimaryModelBusy(false)
+    }
+  }
+
   if (loading) return <LoadingScreen />
 
   return (
@@ -259,7 +276,8 @@ function App() {
               models={models}
               forecasts={forecasts}
               primaryModel={primaryModel}
-              setPrimaryModel={setPrimaryModel}
+              onPrimaryModelChange={changePrimaryModel}
+              primaryModelBusy={primaryModelBusy}
               visibleModels={visibleModels}
               setVisibleModels={setVisibleModels}
               scenarioSpeed={scenarioSpeed}
@@ -403,12 +421,13 @@ function ShipCard({ ship, onSelect }: { ship: FleetShip; onSelect: (shipId: stri
   )
 }
 
-function DiagnoseView({ detail, models, forecasts, primaryModel, setPrimaryModel, visibleModels, setVisibleModels, scenarioSpeed, setScenarioSpeed, log, roi, onDecide, recommendation, dark }: {
+function DiagnoseView({ detail, models, forecasts, primaryModel, onPrimaryModelChange, primaryModelBusy, visibleModels, setVisibleModels, scenarioSpeed, setScenarioSpeed, log, roi, onDecide, recommendation, dark }: {
   detail: ShipDetail | null
   models: ModelInfo[]
   forecasts: Record<string, ForecastResponse>
   primaryModel: string
-  setPrimaryModel: (id: string) => void
+  onPrimaryModelChange: (id: string) => Promise<void>
+  primaryModelBusy: boolean
   visibleModels: string[]
   setVisibleModels: (ids: string[]) => void
   scenarioSpeed: number
@@ -460,6 +479,7 @@ function DiagnoseView({ detail, models, forecasts, primaryModel, setPrimaryModel
   if (!detail) return <InlineLoading label="載入單船診斷" />
   const current = detail.current
   const nextAction = recommendation?.action ?? '待 ROI 引擎評估'
+  const selectableModels = decisionModelOptions(models)
   return (
     <section className="page diagnose-page" aria-labelledby="diagnose-title">
       <PageHeading eyebrow="02 / PERFORMANCE DIAGNOSIS" title={detail.ship_name} subtitle={`${detail.ship_id} · 最新正午日報與 16 週效能預測`} badge={`${statusMeta[detail.status].symbol} ${statusMeta[detail.status].label}`} />
@@ -477,7 +497,7 @@ function DiagnoseView({ detail, models, forecasts, primaryModel, setPrimaryModel
         <section className="panel chart-panel wide-panel">
           <div className="panel-heading"><div><span>SL TREND / FORECAST</span><h2>Speed Loss 趨勢與模型比較</h2></div><span className="model-basis">下游依據：{models.find((model) => model.id === primaryModel)?.name}</span></div>
           <div className="chart-controls">
-            <label>決策主模型<select value={primaryModel} onChange={(event) => setPrimaryModel(event.target.value)} disabled={models.filter((model) => model.is_primary).length < 2}>{models.filter((model) => model.is_primary).map((model) => <option key={model.id} value={model.id}>{model.name}</option>)}</select></label>
+            <label>決策主模型<select value={primaryModel} onChange={(event) => void onPrimaryModelChange(event.target.value)} disabled={primaryModelBusy || selectableModels.length < 2} aria-busy={primaryModelBusy}>{selectableModels.map((model) => <option key={model.id} value={model.id}>{model.name}</option>)}</select></label>
             <fieldset><legend>顯示比較模型</legend>{models.map((model) => <label key={model.id}><input type="checkbox" checked={visibleModels.includes(model.id)} onChange={(event) => setVisibleModels(event.target.checked ? [...visibleModels, model.id] : visibleModels.filter((id) => id !== model.id))} />{model.name}</label>)}</fieldset>
             <DualInput label="情境船速" value={scenarioSpeed} min={12} max={20} step={0.5} unit="kn" onChange={setScenarioSpeed} />
           </div>

@@ -180,6 +180,12 @@ class ModelPackageStore:
         self._save(records, model_id)
         return record
 
+    def activate_builtin(self, model_id: str) -> None:
+        records = self.list()
+        for item in records:
+            item["is_primary"] = False
+        self._save(records, model_id)
+
     def restore(self) -> dict:
         records = self.list()
         for item in records:
