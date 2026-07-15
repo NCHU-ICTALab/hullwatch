@@ -18,6 +18,7 @@ from app.llm import inspect as inspect_mod
 from app.llm.advisor import Advisor
 from app.llm.provider import get_chat_model
 from app.llm.retrieval import get_retriever
+from app.api.data_admin import DataResetService
 from app.api.model_packages import manifest_template
 
 
@@ -52,6 +53,7 @@ async def lifespan(app: FastAPI):
         app.state.advisor = Advisor(app.state.service, get_retriever(), get_chat_model())
     else:
         app.state.advisor = None
+    app.state.data_reset = DataResetService()
     yield
 
 
@@ -253,6 +255,23 @@ def send_notification_digest(subscription_id: str):
         return _svc(app.state).send_notification_digest(subscription_id)
     except KeyError:
         raise HTTPException(404, "找不到這筆訂閱")
+
+
+@app.post("/api/data/reset", status_code=202)
+def data_reset():
+    """清空站台資料並從原始資料集重新匯入（背景執行，用 status 輪詢進度）。
+
+    刻意不經 _svc：artifacts 損毀（service=None）時這條路也要能救回來。
+    """
+    try:
+        return app.state.data_reset.start(app)
+    except RuntimeError as exc:
+        raise HTTPException(409, str(exc))
+
+
+@app.get("/api/data/reset/status")
+def data_reset_status():
+    return app.state.data_reset.status()
 
 
 @app.post("/api/advisor")

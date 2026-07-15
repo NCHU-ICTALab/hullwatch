@@ -26,6 +26,7 @@ import { allocateEventLanes, cleaningSavings, decisionModelOptions, EVENT_LANE_H
 import type {
   AdvisorResponse,
   AlertsResponse,
+  DataResetStatus,
   FleetResponse,
   FleetShip,
   ForecastResponse,
@@ -843,8 +844,37 @@ function UploadZone({ name, accept, icon, title, hint }: { name: string; accept:
 }
 
 function SettingsTool({ alerts, fuel, models, onModelsChanged, onReportsImported }: { alerts: AlertsResponse | null; fuel: FuelPriceResponse | null; models: ModelInfo[]; onModelsChanged: () => Promise<void>; onReportsImported: () => Promise<void> }) {
-  const [section, setSection] = useState<'data' | 'models' | 'sources' | 'notifications' | 'interface'>('data')
-  return <div className="settings-layout"><nav aria-label="設定分類"><button className={section === 'data' ? 'active' : ''} onClick={() => setSection('data')}>資料匯入</button><button className={section === 'models' ? 'active' : ''} onClick={() => setSection('models')}>模型管理</button><button className={section === 'sources' ? 'active' : ''} onClick={() => setSection('sources')}>資料來源</button><button className={section === 'notifications' ? 'active' : ''} onClick={() => setSection('notifications')}>電子報訂閱</button><button className={section === 'interface' ? 'active' : ''} onClick={() => setSection('interface')}>介面</button></nav><div className="settings-content">{section === 'data' && <NoonReportUpload onUploaded={onReportsImported} />}{section === 'models' && <ModelManager models={models} onChanged={onModelsChanged} />}{section === 'sources' && <section className="settings-section"><div className="settings-section-heading"><div><span>MARKET DATA</span><h3>油價來源與狀態</h3></div></div><div className="settings-list"><article><strong>目前狀態</strong><span>{fuel?.market_status ?? 'unknown'}</span></article><article><strong>市場</strong><span>{fuel?.port ?? '—'}</span></article><article><strong>更新策略</strong><span>每 {fuel?.refresh_interval_hours ?? 6} 小時；{fuel?.stale_after_hours ?? 24} 小時後標示延遲</span></article><article><strong>行情來源</strong><span>Ship & Bunker Singapore／USDA Open Ag Transport Data</span></article></div></section>}{section === 'notifications' && <NotificationManager />}{section === 'interface' && <section className="settings-section"><div className="settings-list"><article><strong>資料模式</strong><span>LIVE · FastAPI</span></article><article><strong>主題</strong><span>由頂部切換</span></article><article><strong>通知通道</strong><span>SES：{alerts?.channels.ses} · Discord：{alerts?.channels.discord}</span></article></div></section>}</div></div>
+  const [section, setSection] = useState<'data' | 'models' | 'sources' | 'notifications' | 'interface' | 'dataAdmin'>('data')
+  return <div className="settings-layout"><nav aria-label="設定分類"><button className={section === 'data' ? 'active' : ''} onClick={() => setSection('data')}>資料匯入</button><button className={section === 'models' ? 'active' : ''} onClick={() => setSection('models')}>模型管理</button><button className={section === 'sources' ? 'active' : ''} onClick={() => setSection('sources')}>資料來源</button><button className={section === 'notifications' ? 'active' : ''} onClick={() => setSection('notifications')}>電子報訂閱</button><button className={section === 'interface' ? 'active' : ''} onClick={() => setSection('interface')}>介面</button><button className={section === 'dataAdmin' ? 'active' : ''} onClick={() => setSection('dataAdmin')}>資料設定</button></nav><div className="settings-content">{section === 'data' && <NoonReportUpload onUploaded={onReportsImported} />}{section === 'models' && <ModelManager models={models} onChanged={onModelsChanged} />}{section === 'sources' && <section className="settings-section"><div className="settings-section-heading"><div><span>MARKET DATA</span><h3>油價來源與狀態</h3></div></div><div className="settings-list"><article><strong>目前狀態</strong><span>{fuel?.market_status ?? 'unknown'}</span></article><article><strong>市場</strong><span>{fuel?.port ?? '—'}</span></article><article><strong>更新策略</strong><span>每 {fuel?.refresh_interval_hours ?? 6} 小時；{fuel?.stale_after_hours ?? 24} 小時後標示延遲</span></article><article><strong>行情來源</strong><span>Ship & Bunker Singapore／USDA Open Ag Transport Data</span></article></div></section>}{section === 'notifications' && <NotificationManager />}{section === 'interface' && <section className="settings-section"><div className="settings-list"><article><strong>資料模式</strong><span>LIVE · FastAPI</span></article><article><strong>主題</strong><span>由頂部切換</span></article><article><strong>通知通道</strong><span>SES：{alerts?.channels.ses} · Discord：{alerts?.channels.discord}</span></article></div></section>}{section === 'dataAdmin' && <DataResetPanel />}</div></div>
+}
+
+function DataResetPanel() {
+  const [status, setStatus] = useState<DataResetStatus | null>(null)
+  const [confirming, setConfirming] = useState(false)
+  const [message, setMessage] = useState('')
+  const running = status?.state === 'running'
+  useEffect(() => { api.dataResetStatus().then(setStatus).catch(() => setStatus(null)) }, [])
+  useEffect(() => {
+    if (!running) return
+    const timer = window.setInterval(() => {
+      api.dataResetStatus().then((next) => {
+        setStatus(next)
+        if (next.state === 'done') {
+          setMessage(`資料已重置（${next.summary?.n_ships ?? '—'} 艘 / ${next.summary?.n_rows_scored ?? '—'} 筆評分），頁面即將重新載入…`)
+          window.setTimeout(() => window.location.reload(), 1600)
+        }
+        if (next.state === 'error') setMessage(`重置失敗：${next.error ?? '未知錯誤'}（站台仍使用原資料，未受影響）`)
+      }).catch(() => {})
+    }, 3000)
+    return () => window.clearInterval(timer)
+  }, [running])
+  const start = async () => {
+    setConfirming(false)
+    setMessage('')
+    try { setStatus(await api.dataReset()) } catch (reason) { setMessage(reason instanceof Error ? reason.message : '重置啟動失敗') }
+  }
+  const statusLabel = running ? `重置中：${status?.step ?? '…'}` : status?.state === 'done' ? `上次重置完成（${status?.finished_at ?? '—'}）` : status?.state === 'error' ? '上次重置失敗' : '待命'
+  return <section className="settings-section"><div className="settings-section-heading"><div><span>DATA ADMIN</span><h3>資料重置</h3></div></div><p>把站台資料清回原始資料集：清除介面上傳累積的正午日報與衍生評分，從 S3 原始資料重新匯入並重建管線（約 1–3 分鐘）。電子報訂閱、上傳模型與油價快取不受影響。</p><div className="settings-list"><article><strong>資料來源</strong><span>{status?.source ?? '依伺服器設定（S3 原始資料集）'}</span></article><article><strong>目前狀態</strong><span aria-live="polite">{statusLabel}</span></article></div>{!confirming && <button className="danger-action" type="button" onClick={() => setConfirming(true)} disabled={running}>{running ? '重置進行中…' : '資料重置'}</button>}{confirming && <div className="reset-confirm" role="alertdialog" aria-label="確認資料重置"><strong>確定要重置？站台目前的日報資料將被原始資料集覆蓋，此動作無法復原。</strong><div><button className="danger-action" type="button" onClick={start}>確認重置</button><button className="secondary-action" type="button" onClick={() => setConfirming(false)}>取消</button></div></div>}{message && <p className="import-message" aria-live="polite">{message}</p>}</section>
 }
 
 function NotificationManager() {

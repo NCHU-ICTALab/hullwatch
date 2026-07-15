@@ -1,6 +1,7 @@
 import type {
   AdvisorResponse,
   AlertsResponse,
+  DataResetStatus,
   FleetResponse,
   ForecastResponse,
   FuelPriceResponse,
@@ -87,6 +88,8 @@ export const api = {
     return request<NoonReportImportResponse>('/api/noon-report/file', { method: 'POST', body })
   },
   downloadNoonReportTemplate: () => download('/api/noon-report/template'),
+  dataReset: () => request<DataResetStatus>('/api/data/reset', { method: 'POST' }),
+  dataResetStatus: () => request<DataResetStatus>('/api/data/reset/status'),
   advisor: (question: string) => request<AdvisorResponse>('/api/advisor', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },

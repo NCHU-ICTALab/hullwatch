@@ -261,3 +261,13 @@ export interface AdvisorResponse {
   steps: string[]
   citations: string[]
 }
+
+export interface DataResetStatus {
+  state: 'idle' | 'running' | 'done' | 'error'
+  step: string | null
+  source: string | null
+  started_at: string | null
+  finished_at: string | null
+  error: string | null
+  summary: { n_ships: number; n_rows_scored: number } | null
+}

@@ -62,6 +62,9 @@ SES_FROM_EMAIL = _s("HW_SES_FROM_EMAIL", "")
 SES_REGION = _s("HW_SES_REGION", "us-east-1")
 DISCORD_WEBHOOK_URL = _s("HW_DISCORD_WEBHOOK_URL", "")
 
+# --- data reset（資料重置來源：s3://bucket/prefix/ 或本地目錄；空值＝自動偵測） ---
+RESET_DATASET_URI = _s("HW_RESET_DATASET_URI", "")
+
 # --- fuel market ---
 FUEL_LIVE_ENABLED = _s("HW_FUEL_LIVE_ENABLED", "1").lower() not in {"0", "false", "no"}
 FUEL_REFRESH_HOURS = int(_f("HW_FUEL_REFRESH_HOURS", 6))
