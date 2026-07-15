@@ -1,4 +1,4 @@
-"""Persistent per-ship newsletter subscriptions and explicit SES/Discord delivery."""
+"""Persistent per-ship notification subscriptions (digest/alert) with SQS-relay/SES/Discord delivery."""
 
 from __future__ import annotations
 

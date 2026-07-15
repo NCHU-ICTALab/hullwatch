@@ -52,7 +52,7 @@ SPEED_SEARCH_HI = 28.0
 
 # --- LLM ---
 LLM_PROVIDER = _s("HW_LLM_PROVIDER", "stub")           # stub | bedrock
-BEDROCK_MODEL_ID = _s("HW_BEDROCK_MODEL", "us.anthropic.claude-sonnet-4-5-20250929-v1:0")
+BEDROCK_MODEL_ID = _s("HW_BEDROCK_MODEL", "us.anthropic.claude-opus-4-6-v1")
 BEDROCK_REGION = _s("HW_BEDROCK_REGION", "us-east-1")
 RETRIEVER = _s("HW_RETRIEVER", "local")                # local | bedrock_kb
 BEDROCK_KB_ID = _s("HW_BEDROCK_KB_ID", "")

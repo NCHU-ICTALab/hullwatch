@@ -266,7 +266,7 @@ docker run --rm -p 8000:8000 \
 | `HW_WATCH_THRESHOLD` | Speed Loss 固定密切留意門檻 | `5` |
 | `HW_WATCH_WINDOW` | 預估幾天內達清洗門檻也列入密切留意 | `60` |
 | `HW_LLM_PROVIDER` | AI 顧問模式：`stub` 或 `bedrock` | `stub` |
-| `HW_BEDROCK_MODEL` | Bedrock 模型 ID | Claude Sonnet 預設模型 |
+| `HW_BEDROCK_MODEL` | Bedrock 模型 ID | `us.anthropic.claude-opus-4-6-v1`（正式站同款） |
 | `HW_BEDROCK_REGION` | Bedrock AWS Region | `us-east-1` |
 | `HW_RETRIEVER` | 檢索模式：`local` 或 `bedrock_kb` | `local` |
 | `HW_BEDROCK_KB_ID` | Bedrock Knowledge Base ID | 空值 |
@@ -296,6 +296,7 @@ docker run --rm -p 8000:8000 \
 - `POST /api/noon-report/file`
 - `POST /api/data/reset`（清空站台資料並從原始資料集重建；`GET /api/data/reset/status` 輪詢進度）
 - `POST /api/advisor`
+- `POST /api/advisor/stream`（SSE 逐字串流：`token`／`tool`／`done` 事件；前端顧問面板的主要通道）
 
 服務啟動後可透過 `/docs` 查看 FastAPI 自動產生的完整 OpenAPI 文件。
 

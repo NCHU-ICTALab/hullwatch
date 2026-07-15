@@ -309,6 +309,13 @@ def index():
                         headers={"Cache-Control": "no-cache"})
 
 
+@app.get("/Oi.ico", include_in_schema=False)
+def brand_icon():
+    # 品牌 icon 在 vite public/ 根目錄——dev server 服務根路徑，正式環境只掛
+    # /assets 與 /static，根路徑檔案需明確給路由，否則 404（favicon.svg 舊坑）
+    return FileResponse(config.FRONTEND_DIR / "Oi.ico")
+
+
 if (config.FRONTEND_DIR / "assets").exists():
     app.mount("/assets", StaticFiles(directory=config.FRONTEND_DIR / "assets"), name="assets")
 app.mount("/static", StaticFiles(directory=config.FRONTEND_DIR), name="static")
