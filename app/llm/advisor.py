@@ -69,25 +69,35 @@ class Advisor:
 
         advisor = self
 
+        def _safe(fn) -> str:
+            # 工具失敗（如 ship_id 不存在）回錯誤 JSON 讓 agent 自行更正，
+            # 不讓例外炸掉整輪推理退到 scripted
+            try:
+                return json.dumps(fn(), ensure_ascii=False, default=str)
+            except Exception as e:
+                return json.dumps({"error": f"{type(e).__name__}: {e}",
+                                   "hint": "請先用 get_fleet_status 確認正確的 ship_id"},
+                                  ensure_ascii=False)
+
         @tool
         def get_fleet_status() -> str:
             """取得全船隊當前狀態：每艘船的 Speed Loss、髒污等級、距上次清洗天數、每日超額成本。"""
-            return json.dumps(advisor._tool_fleet(), ensure_ascii=False, default=str)
+            return _safe(advisor._tool_fleet)
 
         @tool
         def get_ship_detail(ship_id: str) -> str:
-            """取得單船詳情（ship_id 如 YM-9001）：當前指標、水下事件史、清洗建議。"""
-            return json.dumps(advisor._tool_ship(ship_id), ensure_ascii=False, default=str)
+            """取得單船詳情（ship_id 需先由 get_fleet_status 取得，如 S11）：當前指標、水下事件史、清洗建議。"""
+            return _safe(lambda: advisor._tool_ship(ship_id))
 
         @tool
         def compute_roi(ship_id: str = "") -> str:
             """計算清洗經濟效益：最佳清洗日、回本天數、每日超額成本。ship_id 留空看全隊。"""
-            return json.dumps(advisor._tool_roi(ship_id or None), ensure_ascii=False, default=str)
+            return _safe(lambda: advisor._tool_roi(ship_id or None))
 
         @tool
         def retrieve_knowledge(query: str) -> str:
             """查詢知識庫（ISO 19030 方法論、清洗成本行情、命題背景）。"""
-            return json.dumps(advisor._tool_kb(query), ensure_ascii=False, default=str)
+            return _safe(lambda: advisor._tool_kb(query))
 
         return create_react_agent(
             self.chat_model,
@@ -135,7 +145,10 @@ class Advisor:
                         text = "".join(b.get("text", "") for b in text if isinstance(b, dict))
                     if text:
                         yield {"type": "token", "text": text}
-            cites = [c["source"] for c in self._tool_kb(question)]
+            try:
+                cites = [c["source"] for c in self._tool_kb(question)]
+            except Exception:  # 已串出的答案不因引註失敗作廢
+                cites = []
             yield {"type": "done", "mode": "agent", "steps": steps, "citations": cites}
         except Exception as e:  # Bedrock 掛掉時保命：退回 scripted
             out = self._ask_scripted(question)
