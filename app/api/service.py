@@ -19,6 +19,7 @@ from app.api.model_packages import ModelPackageStore
 from app.api.notifications import NotificationSubscriptionStore
 from app.pipeline.baseline import CleanBaselineModel
 from app.pipeline.features import build_features
+from app.pipeline.ingest_yangming import EPOCH as DAY_EPOCH
 from app.pipeline.maintenance_benefit import (
     MaintenanceBenefitContext,
     prepare_maintenance_benefit,
@@ -656,6 +657,52 @@ class FleetService:
             }])
         return response
 
+    # 上傳 CSV 的選配完整欄位：整列齊備才併入 strict 原始檔（速損預測／決策窗口／養護效益）
+    STRICT_UPLOAD_COLUMNS = ["stw", "horse_power", "displacement",
+                             "me_consumption", "mid_draft", "hours_total"]
+
+    def _parse_strict_upload_columns(self, frame: pd.DataFrame, row: pd.Series) -> dict | None:
+        """選配完整欄位：整列齊備回 dict、整列留空回 None、填一半就報錯（避免半套資料進引擎）。"""
+        present = [c for c in self.STRICT_UPLOAD_COLUMNS if c in frame.columns]
+        if not present:
+            return None
+        values = {c: row[c] for c in present}
+        filled = {c: v for c, v in values.items()
+                  if pd.notna(v) and str(v).strip() != ""}
+        if not filled:
+            return None
+        if len(present) < len(self.STRICT_UPLOAD_COLUMNS) or len(filled) < len(self.STRICT_UPLOAD_COLUMNS):
+            raise ValueError(
+                "完整欄位（stw／horse_power／displacement／me_consumption／mid_draft／hours_total）"
+                "需整列齊備，或整列留空只走基本 6 欄")
+        numeric = {c: float(v) for c, v in filled.items()}
+        if not all(np.isfinite(v) and v > 0 for v in numeric.values()):
+            raise ValueError("完整欄位必須是有限正數")
+        if not 1 <= numeric["stw"] <= 35:
+            raise ValueError("STW 必須介於 1–35 kn")
+        if numeric["hours_total"] > 24:
+            raise ValueError("hours_total 不得超過 24 小時")
+        return numeric
+
+    def _append_speed_loss_source(self, rows: list[dict]) -> None:
+        """完整欄位上傳列併入 strict 原始檔（同船同日 upsert）。
+
+        寫檔改變檔案簽章——strict 端點下次請求經 refresh_maintenance_sources_if_changed
+        自動重載並重建效益 context。資料重置會以原始資料集覆寫還原本檔。
+        """
+        add = pd.DataFrame(rows)
+        with self._maintenance_source_lock:
+            src = (pd.read_csv(self.speed_loss_source_path)
+                   if self.speed_loss_source_path.exists() else pd.DataFrame())
+            if len(src) and {"ship_id", "day"}.issubset(src.columns):
+                new_keys = set(zip(add["ship_id"].astype(str), add["day"].astype(float)))
+                keep = [(str(s), float(d)) not in new_keys
+                        for s, d in zip(src["ship_id"], src["day"])]
+                src = src.loc[keep]
+            merged = pd.concat([src, add], ignore_index=True)
+            self.speed_loss_source_path.parent.mkdir(parents=True, exist_ok=True)
+            merged.to_csv(self.speed_loss_source_path, index=False)
+
     def ingest_noon_report_csv(self, frame: pd.DataFrame) -> dict:
         required = ["ship_id", "report_date", "avg_speed", "daily_foc", "wind_scale", "full_speed_hours"]
         missing = [column for column in required if column not in frame.columns]
@@ -663,6 +710,7 @@ class FleetService:
             raise ValueError(f"CSV 缺少欄位：{', '.join(missing)}")
         results = []
         errors = []
+        strict_rows: list[dict] = []
         updated = 0
         for index, row in frame.iterrows():
             line = int(index) + 2
@@ -685,12 +733,24 @@ class FleetService:
                 if not 0 < numeric["full_speed_hours"] <= 24:
                     raise ValueError("全速時數必須介於 0–24 小時")
                 pd.Timestamp(report["report_date"])
+                strict_values = self._parse_strict_upload_columns(frame, row)
                 result = self.ingest_noon_report(report, notify=False)  # 批次結束才一次通知
                 updated += int(result["updated"])
+                if strict_values is not None:
+                    rd = pd.Timestamp(report["report_date"]).normalize()
+                    strict_rows.append({
+                        "ship_id": str(report["ship_id"]).strip(),
+                        "report_date": rd.strftime("%Y-%m-%d"),
+                        "day": float((rd - DAY_EPOCH).days),
+                        "wind_scale": numeric["wind_scale"],
+                        **strict_values,
+                    })
                 results.append({"row": line, **result})
             except (KeyError, ValueError, TypeError) as exc:
                 message = f"未知船舶 {report.get('ship_id')}" if isinstance(exc, KeyError) else str(exc)
                 errors.append({"row": line, "message": message})
+        if strict_rows:  # 寫檔改簽章 → strict 引擎（預測/窗口/效益）下次請求自動重載
+            self._append_speed_loss_source(strict_rows)
         # 規則 1：整批只寄一次（每艘船取本批最新一筆的 Speed Loss）
         latest_by_ship: dict[str, dict] = {}
         names = dict(zip(self.fleet["ship_id"].astype(str), self.fleet["ship_name"].astype(str)))
@@ -709,6 +769,7 @@ class FleetService:
                 "accepted": len(results),
                 "rejected": len(errors),
                 "updated": updated,
+                "strict_appended": len(strict_rows),
             },
             "results": results,
             "errors": errors,

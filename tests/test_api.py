@@ -273,7 +273,8 @@ def test_noon_report_csv_template_has_canonical_columns(client):
         'attachment; filename="hullwatch-noon-report-template.csv"'
     )
     assert response.text.splitlines()[0] == (
-        "ship_id,report_date,avg_speed,daily_foc,wind_scale,full_speed_hours"
+        "ship_id,report_date,avg_speed,daily_foc,wind_scale,full_speed_hours,"
+        "stw,horse_power,displacement,me_consumption,mid_draft,hours_total"
     )
 
 
@@ -290,7 +291,8 @@ def test_noon_report_csv_import_partially_accepts_and_overwrites(client):
     )
 
     assert first.status_code == 200
-    assert first.json()["summary"] == {"rows": 2, "accepted": 1, "rejected": 1, "updated": 0}
+    assert first.json()["summary"] == {"rows": 2, "accepted": 1, "rejected": 1, "updated": 0,
+                                       "strict_appended": 0}
     assert first.json()["errors"][0]["row"] == 3
 
     replacement = csv_body.splitlines()[0] + f"\n{ship_id},2026-07-16,15.8,43.0,3,24\n"
@@ -512,3 +514,46 @@ def test_fleet_speed_loss_windows(client):
 
     assert client.get("/api/fleet/speed-loss-windows",
                       params={"threshold_pct": 0}).status_code == 422
+
+
+FULL_NOON_HEADER = ("ship_id,report_date,avg_speed,daily_foc,wind_scale,full_speed_hours,"
+                    "stw,horse_power,displacement,me_consumption,mid_draft,hours_total\n")
+
+
+def test_noon_report_csv_full_columns_feed_strict_source(client):
+    ship_id = client.get("/api/fleet").json()["ships"][0]["ship_id"]
+    row = f"{ship_id},2023-07-01,15.8,43.0,3,24,15.2,32000,85000,38.5,10.4,24\n"
+    r = client.post("/api/noon-report/file",
+                    files={"file": ("noon.csv", (FULL_NOON_HEADER + row).encode(), "text/csv")})
+    assert r.status_code == 200
+    assert r.json()["summary"]["accepted"] == 1
+    assert r.json()["summary"]["strict_appended"] == 1
+    # strict 端點觸發簽章重載；health 反映缺欄清零（合成資料原本缺 strict 欄）
+    assert client.get(f"/api/ship/{ship_id}/speed-loss-prediction").status_code == 200
+    health = client.get("/api/health").json()
+    assert health["speed_loss_source_missing_columns"] == []
+    rows_before = health["speed_loss_source_rows"]
+    # 同船同日重傳 → upsert，strict 原始檔不長胖
+    client.post("/api/noon-report/file",
+                files={"file": ("noon.csv", (FULL_NOON_HEADER + row).encode(), "text/csv")})
+    client.get(f"/api/ship/{ship_id}/speed-loss-prediction")
+    assert client.get("/api/health").json()["speed_loss_source_rows"] == rows_before
+
+
+def test_noon_report_csv_partial_strict_columns_rejected(client):
+    ship_id = client.get("/api/fleet").json()["ships"][0]["ship_id"]
+    # 只填 stw、其餘完整欄留空 → 該列整筆退回（半套資料不得進引擎）
+    row = f"{ship_id},2023-07-02,15.8,43.0,3,24,15.2,,,,,\n"
+    r = client.post("/api/noon-report/file",
+                    files={"file": ("noon.csv", (FULL_NOON_HEADER + row).encode(), "text/csv")})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["summary"]["rejected"] == 1
+    assert body["summary"]["strict_appended"] == 0
+    assert "整列齊備" in body["errors"][0]["message"]
+    # 完整欄整列留空 → 走基本 6 欄路徑，照常接受
+    row_blank = f"{ship_id},2023-07-02,15.8,43.0,3,24,,,,,,\n"
+    r2 = client.post("/api/noon-report/file",
+                     files={"file": ("noon.csv", (FULL_NOON_HEADER + row_blank).encode(), "text/csv")})
+    assert r2.json()["summary"]["accepted"] == 1
+    assert r2.json()["summary"]["strict_appended"] == 0

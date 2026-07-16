@@ -254,12 +254,15 @@ def noon_report(body: NoonReportBody):
         raise HTTPException(404, f"未知船舶 {body.ship_id}")
 
 
-NOON_REPORT_COLUMNS = "ship_id,report_date,avg_speed,daily_foc,wind_scale,full_speed_hours\n"
+# 前 6 欄必填（儀表板即時更新）；後 6 欄選配——整列齊備才會併入 strict 引擎
+# （速損預測／決策窗口／養護效益），整列留空則只走基本路徑
+NOON_REPORT_COLUMNS = ("ship_id,report_date,avg_speed,daily_foc,wind_scale,full_speed_hours,"
+                       "stw,horse_power,displacement,me_consumption,mid_draft,hours_total\n")
 
 
 @app.get("/api/noon-report/template")
 def noon_report_template():
-    example = "HW-001,2026-07-15,15.8,41.2,3,24\n"
+    example = "HW-001,2026-07-15,15.8,41.2,3,24,15.2,32000,85000,38.5,10.4,24\n"
     return Response(
         content=NOON_REPORT_COLUMNS + example,
         media_type="text/csv",
