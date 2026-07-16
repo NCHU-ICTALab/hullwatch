@@ -254,7 +254,7 @@ th { background: var(--hw-panel-2); color: var(--hw-muted); font-size: 9px; lett
 .schedule-detail span { color: var(--hw-teal); font-family: var(--hw-mono); font-size: 8px; font-weight: 800; }
 .schedule-detail p { margin: 0; color: var(--hw-muted); font-size: 11px; line-height: 1.55; }
 .schedule-detail button { display: flex; align-items: center; gap: 5px; padding: 8px 10px; border: 1px solid var(--hw-teal); background: var(--hw-panel); color: var(--hw-teal); cursor: pointer; font-size: 10px; font-weight: 800; }
-.schedule-detail.focus-highlight { animation: decision-focus 1.8s ease-out; }
+.schedule-detail.focus-highlight, .decision-timeline-panel.focus-highlight { animation: decision-focus 1.8s ease-out; }
 @keyframes decision-focus { 0%, 35% { outline: 6px solid var(--hw-amber); outline-offset: -2px; background: var(--hw-amber-soft); } 100% { outline-color: transparent; } }
 .decision-forecast-panel { margin-bottom: 12px; }
 .prediction-controls { gap: 14px 24px; }
@@ -295,6 +295,55 @@ th { background: var(--hw-panel-2); color: var(--hw-muted); font-size: 9px; lett
 .benefit-control.benefit-price-control { grid-template-columns: minmax(100px, .8fr) minmax(0, 1.6fr) auto; }
 .benefit-price-control select { min-width: 0; min-height: 36px; padding: 5px 7px; border: 1px solid var(--hw-line); background: var(--hw-panel); color: var(--hw-ink); font-family: var(--hw-mono); font-size: 12px; }
 .benefit-price-control > span { white-space: normal; }
+.decision-threshold-panel .decision-threshold-control { max-width: 560px; margin: 12px 16px 6px; }
+.decision-threshold-panel .control-hint { margin: 0 16px 14px; color: var(--hw-muted); font-size: 12px; line-height: 1.55; }
+.decision-timeline-panel .timeline-visual { margin: 14px 16px 4px; border: 1px solid var(--hw-line); background: var(--hw-panel-2); }
+.timeline-lane { display: grid; grid-template-columns: 128px minmax(0, 1fr); border-bottom: 1px dashed var(--hw-line); }
+.timeline-lane:last-child { border-bottom: 0; }
+.timeline-lane-head { padding: 10px 10px 8px; border-right: 1px solid var(--hw-line); }
+.timeline-lane-head b { display: block; font-size: 12px; }
+.timeline-lane-head small { color: var(--hw-muted); font-size: 10px; }
+.timeline-track { position: relative; min-height: 58px; overflow: hidden; }
+.timeline-today-line { position: absolute; top: 0; bottom: 0; border-left: 2px solid #B42318; opacity: .7; }
+.timeline-event { position: absolute; top: 8px; transform: translateX(-50%); display: grid; justify-items: center; gap: 2px; color: var(--hw-ink); font-family: var(--hw-mono); font-size: 10px; font-weight: 750; }
+.timeline-event-lane-1 { top: 30px; }
+.timeline-event i { width: 9px; height: 9px; background: #C06A00; transform: rotate(45deg); }
+.timeline-window { position: absolute; top: 12px; height: 14px; background: rgba(14, 94, 111, .2); border: 2px solid #0E5E6F; }
+.timeline-window-ballast { background: rgba(199, 116, 0, .18); border-color: #C77400; }
+.timeline-window.open-ended { border-right-style: dashed; }
+.timeline-eta { position: absolute; top: 13px; width: 12px; height: 12px; transform: translateX(-50%) rotate(45deg); background: #A64036; border: 2px solid var(--hw-panel); }
+.timeline-action-bar { position: absolute; top: 12px; height: 14px; background: var(--hw-teal-soft); border: 2px solid var(--hw-teal); }
+.timeline-action-bar.open-ended { border-right-style: dashed; }
+.timeline-caption { position: absolute; top: 32px; max-width: 62%; overflow: hidden; color: var(--hw-muted); font-size: 10.5px; white-space: nowrap; text-overflow: ellipsis; }
+.timeline-note { position: absolute; top: 20px; left: 12px; color: var(--hw-muted); font-size: 11.5px; }
+.timeline-axis .timeline-track { min-height: 26px; }
+.timeline-axis .timeline-lane-head { border-right-color: transparent; }
+.timeline-tick { position: absolute; top: 5px; transform: translateX(-50%); color: var(--hw-muted); font-family: var(--hw-mono); font-size: 9.5px; }
+.timeline-tick-today { top: initial; bottom: 2px; color: #B42318; font-weight: 800; }
+.decision-timeline-panel .chart-explanation { margin: 8px 16px; }
+.decision-timeline-panel .data-fallback .table-wrap { display: grid; gap: 14px; }
+.fleet-windows-timeline { padding: 4px 12px 12px; }
+.fleet-windows-timeline .timeline-visual { border: 1px solid var(--hw-line); background: var(--hw-panel-2); }
+.fleet-windows-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 20px; margin: 10px 0; }
+.fleet-windows-threshold { flex: 1 1 300px; max-width: 460px; }
+.fleet-windows-state { color: var(--hw-muted); font-family: var(--hw-mono); font-size: 10px; }
+.fleet-windows-legend { display: flex; gap: 12px; color: var(--hw-muted); font-size: 11px; }
+.fleet-windows-legend span { display: inline-flex; align-items: center; gap: 5px; }
+.fleet-windows-legend i { display: inline-block; width: 14px; height: 8px; }
+.legend-window-laden { background: rgba(14, 94, 111, .2); border: 2px solid #0E5E6F; }
+.legend-window-ballast { background: rgba(199, 116, 0, .18); border: 2px solid #C77400; }
+.legend-eta { width: 9px; height: 9px; background: #A64036; transform: rotate(45deg); }
+.fleet-windows-row .timeline-lane-head { display: grid; gap: 2px; padding: 6px 10px; }
+.fleet-windows-ship { display: inline-flex; align-items: baseline; gap: 6px; padding: 0; border: 0; background: none; color: var(--hw-ink); cursor: pointer; font: inherit; text-align: left; }
+.fleet-windows-ship:hover b, .fleet-windows-ship:focus-visible b { color: var(--hw-teal); text-decoration: underline; }
+.fleet-windows-ship b { font-size: 12px; }
+.fleet-windows-ship small, .fleet-windows-row .timeline-lane-head > small { color: var(--hw-muted); font-family: var(--hw-mono); font-size: 9.5px; }
+.fleet-windows-track { min-height: 34px; }
+.fleet-window-laden { top: 5px; height: 10px; }
+.fleet-window-ballast { top: 19px; height: 10px; }
+.fleet-eta-laden { top: 5px; width: 10px; height: 10px; }
+.fleet-eta-ballast { top: 19px; width: 10px; height: 10px; }
+.fleet-windows-timeline .timeline-axis .timeline-track { min-height: 24px; }
 .benefit-workspace { display: grid; grid-template-columns: minmax(320px, .72fr) minmax(0, 1.8fr); gap: 12px; padding: 4px 12px 12px; }
 .benefit-actions, .benefit-results { min-width: 0; border: 1px solid var(--hw-line); background: var(--hw-panel); }
 .benefit-actions > h3, .benefit-results > h3 { margin: 0; padding: 12px 14px; border-bottom: 1px solid var(--hw-line); font-size: 16px; }

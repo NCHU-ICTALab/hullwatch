@@ -4,6 +4,7 @@ import type {
   AlertsResponse,
   DataResetStatus,
   FleetResponse,
+  FleetSpeedLossWindowsResponse,
   ForecastResponse,
   FuelPriceResponse,
   LogEntry,
@@ -69,6 +70,13 @@ export const api = {
     return request<SpeedLossPredictionResponse>(
       `/api/ship/${encodeURIComponent(shipId)}/speed-loss-prediction?${query.toString()}`,
     )
+  },
+  fleetSpeedLossWindows: (params: { thresholdPct: number; forecastDays?: number }) => {
+    const query = new URLSearchParams({
+      threshold_pct: String(params.thresholdPct),
+      forecast_days: String(params.forecastDays ?? 180),
+    })
+    return request<FleetSpeedLossWindowsResponse>(`/api/fleet/speed-loss-windows?${query.toString()}`)
   },
   maintenanceBenefit: (shipId: string, body: MaintenanceBenefitRequest) =>
     request<MaintenanceBenefitResponse>(

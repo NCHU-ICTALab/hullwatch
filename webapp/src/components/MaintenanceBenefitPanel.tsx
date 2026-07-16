@@ -1,6 +1,7 @@
 import { useEffect, useId, useMemo, useState } from 'react'
 import type { EChartsOption } from 'echarts'
 import { api } from '../api'
+import { dayToDisplayDate } from '../dashboardLogic'
 import type {
   FuelPriceResponse,
   MaintenanceAction,
@@ -103,16 +104,22 @@ function branchValuesByDay(action: MaintenanceBenefitActionResult) {
   return values
 }
 
-export function MaintenanceBenefitPanel({ shipId, shipName, fuel, dark }: {
+export interface MaintenanceBenefitSnapshot {
+  response: MaintenanceBenefitResponse
+  selectedActions: MaintenanceAction[]
+}
+
+export function MaintenanceBenefitPanel({ shipId, shipName, fuel, threshold, dark, onResult }: {
   shipId: string
   shipName: string
   fuel: FuelPriceResponse
+  threshold: number
   dark: boolean
+  onResult?: (snapshot: MaintenanceBenefitSnapshot | null) => void
 }) {
   const id = useId().replace(/:/g, '')
   const [executionDelay, setExecutionDelay] = useState(0)
   const [horizon, setHorizon] = useState(180)
-  const [threshold, setThreshold] = useState(8)
   const [fuelFactor, setFuelFactor] = useState(3)
   const [fuelPrice, setFuelPrice] = useState(600)
   const [priceGrade, setPriceGrade] = useState<string>(() => (
@@ -166,6 +173,10 @@ export function MaintenanceBenefitPanel({ shipId, shipName, fuel, dark }: {
     if (executionDelay > horizon) setExecutionDelay(horizon)
   }, [executionDelay, horizon])
 
+  useEffect(() => {
+    onResult?.(data ? { response: data, selectedActions } : null)
+  }, [data, onResult, selectedActions])
+
   const selectedResults = useMemo(() => (
     data?.actions.filter((action) => selectedActions.includes(action.event_type)) ?? []
   ), [data, selectedActions])
@@ -210,12 +221,13 @@ export function MaintenanceBenefitPanel({ shipId, shipName, fuel, dark }: {
       dataZoom: [{ type: 'inside', filterMode: 'none' }],
       xAxis: {
         type: 'value',
-        name: 'NOON_UTC 相對日',
+        name: '映射日期（Day 0 = 2021-01-01）',
         min: 'dataMin',
         max: 'dataMax',
         nameLocation: 'middle',
         nameGap: 34,
-        axisLabel: { color: chartText },
+        axisLabel: { color: chartText, formatter: (value: number) => dayToDisplayDate(value) },
+        axisPointer: { label: { formatter: (params: { value: number | string | Date }) => dayToDisplayDate(Number(params.value)) } },
         axisLine: { lineStyle: { color: chartGrid } },
       },
       yAxis: {
@@ -308,10 +320,9 @@ export function MaintenanceBenefitPanel({ shipId, shipName, fuel, dark }: {
 
       <fieldset className="benefit-controls">
         <legend>分岔模擬控制（即時重算）</legend>
-        <p className="control-hint">執行時機＝幾天後才執行養護（0＝現在；等待期間照常汙損，可看出拖延的代價）。展望天數＝效益累計的模擬期間。清底門檻＝視為需要清潔的 Speed Loss 水準，用於「門檻下天數增益」與圖上的門檻虛線。</p>
+        <p className="control-hint">執行時機＝幾天後才執行養護（0＝現在；等待期間照常汙損，可看出拖延的代價）。展望天數＝效益累計的模擬期間。清底門檻使用頁面頂部的共用控制（目前 {number.format(threshold)}% SL），與上方預測面板同一個值。</p>
         <ScenarioControl id={`${id}-delay`} label="執行時機" value={executionDelay} min={0} max={Math.min(365, horizon)} step={1} unit={executionDelay === 0 ? '現在' : `+${executionDelay} 天`} onChange={setExecutionDelay} />
         <ScenarioControl id={`${id}-horizon`} label="展望天數" value={horizon} min={30} max={730} step={10} unit="天" onChange={setHorizon} />
-        <ScenarioControl id={`${id}-threshold`} label="清底門檻" value={threshold} min={1} max={30} step={0.5} unit="% SL" onChange={setThreshold} />
       </fieldset>
       <fieldset className="benefit-controls assumptions-controls">
         <legend>效益換算假設</legend>
@@ -379,19 +390,19 @@ export function MaintenanceBenefitPanel({ shipId, shipName, fuel, dark }: {
                 <article><span>全速日油耗</span><strong>{number.format(data.full_speed_daily_consumption_mt ?? 0)} MT/day</strong></article>
               </div>
               <EChart option={chartOption} className="maintenance-branch-chart" ariaLabel={`${shipName} 養護動作 Speed Loss 分岔圖；歷史為青色，不作為為紅色虛線，各動作另以線型與名稱區分`} />
-              <p className="chart-explanation">x 軸為 NOON_UTC 相對日；倒三角是過去養護事件。滑鼠滾輪／觸控板可縮放，點圖例可隱藏線條，或展開下方資料表。</p>
+              <p className="chart-explanation">x 軸為映射日期（Day 0 = 2021-01-01，非真實日曆）；倒三角是過去養護事件。滑鼠滾輪／觸控板可縮放，點圖例可隱藏線條，或展開下方資料表。</p>
               <details className="data-fallback maintenance-chart-data">
                 <summary>查看分岔圖資料表</summary>
                 <div className="table-wrap">
                   <table>
                     <caption>歷史 7 日分箱重新錨定 Speed Loss</caption>
-                    <thead><tr><th>NOON_UTC day</th><th>Speed Loss %</th><th>觀測數</th></tr></thead>
-                    <tbody>{data.history.map((point) => <tr key={point.day}><td>{point.day}</td><td>{number.format(point.speed_loss_pct)}</td><td>{point.observations}</td></tr>)}</tbody>
+                    <thead><tr><th>映射日期</th><th>Speed Loss %</th><th>觀測數</th></tr></thead>
+                    <tbody>{data.history.map((point) => <tr key={point.day}><td>{dayToDisplayDate(point.day)}</td><td>{number.format(point.speed_loss_pct)}</td><td>{point.observations}</td></tr>)}</tbody>
                   </table>
                   <table>
                     <caption>未來每 7 天與執行日分岔值</caption>
-                    <thead><tr><th>NOON_UTC day</th><th>不作為 %</th>{selectedResults.map((action) => <th key={action.event_type}>{action.event_type} %</th>)}</tr></thead>
-                    <tbody>{futureTableRows.map((row) => <tr key={row.day}><td>{row.day}</td><td>{number.format(row.noAction)}</td>{selectedResults.map((action) => <td key={action.event_type}>{row.actions[action.event_type] == null ? '—' : number.format(row.actions[action.event_type]!)}</td>)}</tr>)}</tbody>
+                    <thead><tr><th>映射日期</th><th>不作為 %</th>{selectedResults.map((action) => <th key={action.event_type}>{action.event_type} %</th>)}</tr></thead>
+                    <tbody>{futureTableRows.map((row) => <tr key={row.day}><td>{dayToDisplayDate(row.day)}</td><td>{number.format(row.noAction)}</td>{selectedResults.map((action) => <td key={action.event_type}>{row.actions[action.event_type] == null ? '—' : number.format(row.actions[action.event_type]!)}</td>)}</tr>)}</tbody>
                   </table>
                 </div>
               </details>
@@ -417,7 +428,7 @@ export function MaintenanceBenefitPanel({ shipId, shipName, fuel, dark }: {
           <p><b>回復兩層：</b>卡片滑桿是物理先驗；實測回復、觀測復發與 n 僅作證據。UWC 原始樣本只有 {evidenceByAction.get('UWC')?.n_total ?? 6} 筆，且多為船體仍乾淨時的主動清洗。</p>
           <p><b>復發：</b>分岔後採本船 dnRate=max(近期趨勢, 0.3%/月)，只對 DD 乘 0.5；不把不同船的事件復發率直接套用。</p>
           <p><b>燃油換算：</b>是 P∝V³ 的粗估，不是量測節省；燃油節省以平均 SL 差、燃油係數、HOURS_FULL_SPEED≥20 的 ME_CONSUMPTION 中位數、展望天數與出海比例計算。</p>
-          <p className="day-zero-note"><b>相對日期：</b>{data?.day0_note ?? 'NOON_UTC 與 event_day 沒有可驗證的日曆 Day 0。'}</p>
+          <p className="day-zero-note"><b>時間解讀：</b>顯示日期為 Day 0 = 2021-01-01 的映射座標，只供排序與計算日距，不是真實日曆日期。{data?.day0_note ?? ''}</p>
         </div>
       </details>
     </section>

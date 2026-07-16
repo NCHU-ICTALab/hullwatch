@@ -174,6 +174,34 @@ export interface SpeedLossPredictionResponse {
   groups: SpeedLossPredictionGroup[]
 }
 
+export interface FleetSpeedLossWindowGroup {
+  load_condition: Exclude<SpeedLossLoadCondition, 'all'>
+  load_label: string
+  available: boolean
+  reason: string | null
+  current_speed_loss_pct: number | null
+  deterioration_rate_pct_per_month: number | null
+  latest_day: number | null
+  threshold_crossing: {
+    eta_days: number | null
+    earliest_days: number | null
+    latest_days: number | null
+  }
+}
+
+export interface FleetSpeedLossWindowsResponse {
+  method: string
+  day0_note: string | null
+  parameters: { forecast_days: number; threshold_pct: number; max_wind_scale: number }
+  ships: {
+    ship_id: string
+    ship_name: string
+    available: boolean
+    reason: string | null
+    groups: FleetSpeedLossWindowGroup[]
+  }[]
+}
+
 export type MaintenanceAction = 'UWI' | 'PP' | 'UWI+PP' | 'UWC' | 'UWC+PP' | 'DD'
 
 export interface MaintenanceBenefitEvidence {

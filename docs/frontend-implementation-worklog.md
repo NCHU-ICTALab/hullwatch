@@ -283,3 +283,23 @@
 - 最終驗證：public Python **84 passed**（1 則既有 Starlette/httpx deprecation warning）；maintenance API 200／非法等待 422／未知船 404、77 事件與 UWI exact invariant smoke 綠；Vitest **36 passed**、oxlint、TypeScript/Vite production build 綠。Private **11 passed**、39-file manifest verified、Wiki 34 pages 與 10/10 evaluation 綠。Vite 仍有既有 >500kB chunk warning；in-app Browser 無 backend，人工點擊與截圖仍需本機補做。
 - 人工視覺 QA 後收斂：效益試算只保留 UWI／PP／UWC／DD 四個單一動作卡（組合動作 UWI+PP／UWC+PP 自 `ACTION_ORDER` 移除；後端六動作 API 與歷史複合事件顯示不變），分岔圖移除底部 dataZoom 縮放條並收回 grid 邊距；完整數據仍可由圖表資料表 fallback 取得，a11y 結構（fieldset／live region／非顏色線型區分）不變。Vitest 36、oxlint、build 重跑綠。
 - 第二輪人工 QA 修正：分岔圖改用與 Speed Loss 預測一致的 inside dataZoom（滑鼠滾輪／觸控縮放、`filterMode: none`）；圖例改平鋪自動換行，不再擠成單列翻頁。不作為與各動作分岔統一取樣（每 7 天＋執行日＋末日），axis tooltip 因此會同時列出所有線的數值，不再只吸到不作為。兩組 fieldset 新增 `control-hint` 白話說明各滑桿用途；燃油價格改為下拉選單直接選儀表板市場行情五油種（顯示每噸價格、估算標記與外部行情日曆日），保留「手動輸入」模式沿用原 range+number 雙控件；`MaintenanceBenefitPanel` 新增 `fuel` prop 由決策頁傳入，不重複抓行情。Vitest 36、oxlint、production build、Python 84 全綠。
+
+## 2026-07-16 第二十一批：決策時間軸取代舊甘特＋全站映射日期
+
+拍板依據：使用者確認方案三（甘特重錨定為決策摘要時間軸）、決策頁清底門檻合併、預測不可用時誠實降級、全站統一 Day 0 = 2021-01-01 映射日期顯示。
+
+- 統一時間顯示：`dashboardLogic.dayToDisplayDate`（Day 0 = 2021-01-01，只供排序與日距，非真實日曆）。Speed Loss 預測與效益分岔兩圖的 x 軸、axisPointer、tooltip 標頭、fallback 資料表與 KPI（ETA 附映射日、清底日範圍改日期區間）全部改用映射日期；兩面板「時間解讀」註記同步改寫。原本就用映射日期的日誌／甘特／警報不變；市場行情仍為外部真實日曆日期。
+- 門檻合併：決策頁新增頁面級「清底門檻」單一控制（range+number 雙控件＋說明），`SpeedLossPredictionPanel` 與 `MaintenanceBenefitPanel` 各自的門檻滑桿移除、改收 `threshold` prop，預測窗口、門檻下天數增益與時間軸永遠同一個門檻。
+- 新元件 `DecisionTimeline`：只彙整、不另行計算。三種 lane——過去養護（效益 API `past_events` 真實事件，60 天碰撞分兩層）、預測窗口（strict 預測門檻交叉 earliest／ETA／latest，逐載況一列、開放端虛線框）、行動方案（效益試算勾選單一動作中成本節省最高者，執行日起畫至分岔曲線再次越門檻日，無交叉畫至展望期末並標示）。「今天」紅線貫穿各 lane，軸有五個映射日期刻度＋今天標籤。
+- 面板以 `onResult` callback 把最新 response（含使用者滑桿狀態；效益另帶勾選動作）回報 DecideView，換船即清空快照；時間軸跟著上方面板即時更新，無重複 API 呼叫。
+- 移除決策頁舊 `ScheduleGantt` 與「建議詳情」唯讀卡（舊排程引擎輸出、surrogate 與相對日混用、動作字彙含 UWC+PP 的三重不一致來源）；總覽頁全船隊甘特與 `/api/schedule` 不變。「前往清洗決策」的 `#selected-decision` focus 目標改為決策時間軸面板。
+- a11y：時間軸 `role="img"` 帶完整中文摘要 aria-label，事件／窗口／行動非只靠顏色（形狀＋線框＋文字），三張 fallback 資料表（過去事件、預測窗口、行動方案），等待與資料不足狀態分開描述。
+- 驗證：Vitest **36 passed**、oxlint、TypeScript/Vite production build 綠（既有 >500kB chunk warning）。in-app Browser 無 backend，實際視覺仍需本機確認。
+
+## 2026-07-16 第二十二批：總覽窗口時間軸＋全站一致性稽核
+
+- 新後端 `GET /api/fleet/speed-loss-windows`：迴圈重用 strict `predict_speed_loss`（load_condition=all），只回傳每船每載況的門檻交叉窗口與現況純量、不含逐點序列。真資料 smoke：15 船、12 可預測、單次 0.21 秒，不需 cache。pytest 新增結構與 422 驗證測試（**85 passed**）。
+- 新元件 `FleetWindowsTimeline` 取代總覽 `FleetScheduleDisclosure` 內的舊 ScheduleGantt：每船一列、依 ETA 由近到遠排序，重載／壓艙窗口帶與 ETA 菱形、每船自己的最新紀錄日紅線、映射日期刻度；門檻 range+number 控制（預設 8%、180ms debounce 重算）、圖例、live 狀態、role="img" 摘要與船×載況 fallback 資料表；點船名沿用原 onSelect 導向。收合標題改為「全船隊清潔窗口總覽」。
+- 一致性稽核修正：日誌頁「延遲代價」卡的「建議動作：{舊排程引擎 action}」（會漏出 UWC+PP 字彙）改為導向決策頁的中性文案；DiagnoseView 不再接收 schedule recommendation。
+- 稽核後保留的已知差異（有意為之）：①營運狀態分級／警報／fleet KPI 用 clean-baseline 殘差引擎，與 strict 預測用途不同（分級與成本 vs 清洗時點決策），簡報答辯口徑為「兩法互為交叉驗證」；②`/api/schedule` 與 ScheduleGantt 元件保留於後端與測試（alerts、roi 參數鏈仍依賴），UI 已無任何舊引擎建議窗口；③市場行情日期為外部真實日曆，刻意不映射；④總覽與決策頁門檻為各頁獨立情境參數，預設一致為 8%。
+- 驗證：pytest **85 passed**、Vitest **36 passed**、oxlint、production build 綠。

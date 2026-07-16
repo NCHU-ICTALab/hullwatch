@@ -271,6 +271,58 @@ class FleetService:
             load_condition=load_condition,
         )
 
+    def fleet_speed_loss_windows(
+        self,
+        forecast_days: int = 180,
+        threshold_pct: float = 8.0,
+        max_wind_scale: float = 4.0,
+    ) -> dict:
+        """全船隊 strict 預測門檻窗口摘要：只回傳每船每載況的交叉窗口與現況純量，
+        不含逐點 history/trend/forecast 序列（總覽時間軸用，避免 15 船全序列 payload）。"""
+        self.refresh_maintenance_sources_if_changed()
+        ships = []
+        day0_note = None
+        for _, row in self.fleet.sort_values(schema.SHIP_ID).iterrows():
+            ship_id = str(row[schema.SHIP_ID])
+            result = predict_speed_loss(
+                self.speed_loss_source,
+                ship_id,
+                forecast_days=forecast_days,
+                threshold_pct=threshold_pct,
+                max_wind_scale=max_wind_scale,
+                load_condition="all",
+            )
+            day0_note = result.get("day0_note") or day0_note
+            ships.append({
+                "ship_id": ship_id,
+                "ship_name": str(row["ship_name"]),
+                "available": result["available"],
+                "reason": result["reason"],
+                "groups": [
+                    {
+                        "load_condition": group["load_condition"],
+                        "load_label": group["load_label"],
+                        "available": group["available"],
+                        "reason": group["reason"],
+                        "current_speed_loss_pct": group["current_speed_loss_pct"],
+                        "deterioration_rate_pct_per_month": group["deterioration_rate_pct_per_month"],
+                        "latest_day": group["latest_day"],
+                        "threshold_crossing": group["threshold_crossing"],
+                    }
+                    for group in result["groups"]
+                ],
+            })
+        return {
+            "method": "per-ship-load-stw-horsepower-ols",
+            "day0_note": day0_note,
+            "parameters": {
+                "forecast_days": forecast_days,
+                "threshold_pct": threshold_pct,
+                "max_wind_scale": max_wind_scale,
+            },
+            "ships": ships,
+        }
+
     def maintenance_benefit(
         self,
         ship_id: str,

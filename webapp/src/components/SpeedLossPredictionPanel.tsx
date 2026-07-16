@@ -1,6 +1,7 @@
 import { useEffect, useId, useMemo, useState } from 'react'
 import type { EChartsOption } from 'echarts'
 import { api } from '../api'
+import { dayToDisplayDate } from '../dashboardLogic'
 import type {
   SpeedLossLoadCondition,
   SpeedLossPredictionGroup,
@@ -62,14 +63,18 @@ function PredictionKpi({ label, groups, render }: {
 function etaText(group: SpeedLossPredictionGroup, horizon: number) {
   const eta = group.threshold_crossing.eta_days
   if (eta === null) return `>${horizon} 天`
-  return eta === 0 ? '已達門檻' : `${eta} 天`
+  if (eta === 0) return '已達門檻'
+  return group.latest_day === null ? `${eta} 天` : `${eta} 天 · ${dayToDisplayDate(group.latest_day + eta)}`
 }
 
 function rangeText(group: SpeedLossPredictionGroup, horizon: number) {
   const { earliest_days: earliest, latest_days: latest } = group.threshold_crossing
   if (earliest === null) return '預測期內未達'
-  if (latest === null) return `${earliest}–>${horizon} 天`
-  return earliest === latest ? `${earliest} 天` : `${earliest}–${latest} 天`
+  if (group.latest_day === null) return latest === null ? `${earliest}–>${horizon} 天` : `${earliest}–${latest} 天`
+  const earliestDate = dayToDisplayDate(group.latest_day + earliest)
+  if (latest === null) return `${earliestDate} 起（>${horizon} 天）`
+  if (earliest === latest) return earliestDate
+  return `${earliestDate} ～ ${dayToDisplayDate(group.latest_day + latest)}`
 }
 
 function predictionOption(
@@ -148,7 +153,7 @@ function predictionOption(
         symbolSize: 14,
         data: [[group.latest_day + eta, prediction.parameters.threshold_pct]],
         itemStyle: { color: '#A64036', borderColor: dark ? '#071A20' : '#FFFFFF', borderWidth: 2 },
-        tooltip: { formatter: `${group.load_label}預估於最新紀錄後 ${eta} 天達門檻` },
+        tooltip: { formatter: `${group.load_label}預估 ${dayToDisplayDate(group.latest_day + eta)} 達門檻（最新紀錄後 ${eta} 天）` },
       })
     }
   })
@@ -161,11 +166,12 @@ function predictionOption(
     grid: { left: 62, right: 28, top: 36, bottom: 82 },
     xAxis: {
       type: 'value',
-      name: 'NOON_UTC（相對日）',
+      name: '映射日期（Day 0 = 2021-01-01）',
       nameLocation: 'middle',
       nameGap: 38,
       nameTextStyle: { color: chartText },
-      axisLabel: { color: chartText },
+      axisLabel: { color: chartText, formatter: (value: number) => dayToDisplayDate(value) },
+      axisPointer: { label: { formatter: (params: { value: number | string | Date }) => dayToDisplayDate(Number(params.value)) } },
       axisLine: { lineStyle: { color: chartGrid } },
       splitLine: { lineStyle: { color: chartGrid } },
     },
@@ -182,13 +188,14 @@ function predictionOption(
   }
 }
 
-export function SpeedLossPredictionPanel({ shipId, shipName, dark }: {
+export function SpeedLossPredictionPanel({ shipId, shipName, threshold, dark, onResult }: {
   shipId: string
   shipName: string
+  threshold: number
   dark: boolean
+  onResult?: (prediction: SpeedLossPredictionResponse | null) => void
 }) {
   const [forecastDays, setForecastDays] = useState(180)
-  const [thresholdPct, setThresholdPct] = useState(8)
   const [maxWindScale, setMaxWindScale] = useState(4)
   const [loadCondition, setLoadCondition] = useState<SpeedLossLoadCondition>('all')
   const [prediction, setPrediction] = useState<SpeedLossPredictionResponse | null>(null)
@@ -203,14 +210,17 @@ export function SpeedLossPredictionPanel({ shipId, shipName, dark }: {
     const timer = window.setTimeout(() => {
       api.speedLossPrediction(shipId, {
         forecastDays,
-        thresholdPct,
+        thresholdPct: threshold,
         maxWindScale,
         loadCondition,
       }).then((result) => {
-        if (active) setPrediction(result)
+        if (!active) return
+        setPrediction(result)
+        onResult?.(result)
       }).catch((reason: unknown) => {
         if (!active) return
         setPrediction(null)
+        onResult?.(null)
         setError(reason instanceof Error ? reason.message : 'Speed Loss 預測重算失敗')
       }).finally(() => {
         if (active) setLoading(false)
@@ -220,7 +230,7 @@ export function SpeedLossPredictionPanel({ shipId, shipName, dark }: {
       active = false
       window.clearTimeout(timer)
     }
-  }, [forecastDays, loadCondition, maxWindScale, shipId, thresholdPct])
+  }, [forecastDays, loadCondition, maxWindScale, onResult, shipId, threshold])
 
   const chartOption = useMemo(
     () => prediction && prediction.available ? predictionOption(prediction, dark) : {},
@@ -237,7 +247,6 @@ export function SpeedLossPredictionPanel({ shipId, shipName, dark }: {
       </div>
       <div className="chart-controls prediction-controls">
         <PredictionRange label="預測天數" value={forecastDays} min={30} max={365} step={5} unit="天" onChange={setForecastDays} />
-        <PredictionRange label="清底門檻" value={thresholdPct} min={1} max={30} step={0.5} unit="%" onChange={setThresholdPct} />
         <PredictionRange label="天候上限" value={maxWindScale} min={0} max={12} step={1} unit="風級" onChange={setMaxWindScale} />
         <fieldset className="load-condition-toggle">
           <legend>載況</legend>
@@ -264,7 +273,7 @@ export function SpeedLossPredictionPanel({ shipId, shipName, dark }: {
 
       {!prediction && loading && <div className="prediction-empty">正在建立 {shipName} 的逐載況 STW 基準…</div>}
       {prediction && prediction.available && <EChart option={chartOption} className="main-chart prediction-chart" ariaLabel={`${shipName} 依重載與壓艙分模的 Speed Loss 預測圖`} />}
-      {prediction && prediction.available && <details className="data-fallback prediction-data-table"><summary>查看預測圖表資料</summary>{groups.filter((group) => group.available).map((group) => <div className="table-wrap" key={group.load_condition}><table><caption>{group.load_label} Speed Loss 量測與每 7 天預測點</caption><thead><tr><th>NOON_UTC Day</th><th>資料</th><th>Speed Loss</th><th>90% 下界</th><th>90% 上界</th></tr></thead><tbody>{group.history.map((point) => <tr key={`history-${group.load_condition}-${point.day}`}><td>{point.day.toFixed(1)}</td><td>7 天箱量測（{point.observations} 筆）</td><td>{point.speed_loss_pct.toFixed(2)}%</td><td>—</td><td>—</td></tr>)}{group.forecast.filter((_, index) => index % 7 === 0 || index === group.forecast.length - 1).map((point) => <tr key={`forecast-${group.load_condition}-${point.day}`}><td>{point.day.toFixed(1)}</td><td>趨勢外推</td><td>{point.mid.toFixed(2)}%</td><td>{point.lo.toFixed(2)}%</td><td>{point.hi.toFixed(2)}%</td></tr>)}</tbody></table></div>)}</details>}
+      {prediction && prediction.available && <details className="data-fallback prediction-data-table"><summary>查看預測圖表資料</summary>{groups.filter((group) => group.available).map((group) => <div className="table-wrap" key={group.load_condition}><table><caption>{group.load_label} Speed Loss 量測與每 7 天預測點</caption><thead><tr><th>映射日期</th><th>資料</th><th>Speed Loss</th><th>90% 下界</th><th>90% 上界</th></tr></thead><tbody>{group.history.map((point) => <tr key={`history-${group.load_condition}-${point.day}`}><td>{dayToDisplayDate(point.day)}</td><td>7 天箱量測（{point.observations} 筆）</td><td>{point.speed_loss_pct.toFixed(2)}%</td><td>—</td><td>—</td></tr>)}{group.forecast.filter((_, index) => index % 7 === 0 || index === group.forecast.length - 1).map((point) => <tr key={`forecast-${group.load_condition}-${point.day}`}><td>{dayToDisplayDate(point.day)}</td><td>趨勢外推</td><td>{point.mid.toFixed(2)}%</td><td>{point.lo.toFixed(2)}%</td><td>{point.hi.toFixed(2)}%</td></tr>)}</tbody></table></div>)}</details>}
       {prediction && !prediction.available && <div className="prediction-empty" role="status" aria-live="polite"><strong>無法產生 strict 預測</strong><span>{prediction.reason}</span></div>}
       {unavailableGroups.length > 0 && <div className="prediction-warnings" role="status" aria-live="polite">{unavailableGroups.map((group) => <p key={group.load_condition}><b>{group.load_label}</b>：{group.reason}</p>)}</div>}
 
@@ -276,7 +285,7 @@ export function SpeedLossPredictionPanel({ shipId, shipName, dark }: {
           <p><b>降噪與預測：</b>逐筆 Speed Loss = (預期 STW − 實測 STW)／預期 STW，排除 &lt;−8% 或 &gt;45%；每 7 天平均並用箱中點作 NOON_UTC 座標。相鄰箱下跳超過 3pp 且不在尾端視為清洗，僅用最近一次清洗後資料做線性 OLS。</p>
           <p><b>不確定性：</b>填色帶是 90% 迴歸平均反應信賴帶，半寬 1.645 × s × √(1/n + (x−x̄)²/Sxx)，距觀測期越遠越寬；上界／中線／下界首次達門檻分別形成最早／ETA／最晚。</p>
           <p><b>主要誤差源：</b>STW 計程儀校準是最大量測誤差源。資料沒有舵角欄位，因此以全速時數比例代理穩態直航，不能完全排除操舵造成的功率變化。</p>
-          <p className="day-zero-note"><b>時間解讀：</b>{prediction?.day0_note ?? '原始資料只提供相對日；ETA 以距最新紀錄天數呈現，沒有外部 Day 0 對照表就不能換算真實日曆日。'}</p>
+          <p className="day-zero-note"><b>時間解讀：</b>顯示日期為 Day 0 = 2021-01-01 的映射座標，只供排序與計算日距，不是真實日曆日期。{prediction?.day0_note ?? ''}</p>
         </div>
       </details>
     </section>

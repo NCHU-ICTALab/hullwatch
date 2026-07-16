@@ -39,7 +39,7 @@ describe('FleetScheduleDisclosure', () => {
       <FleetScheduleDisclosure><div>甘特圖內容</div></FleetScheduleDisclosure>,
     )
 
-    expect(html).toContain('全船隊清潔建議甘特圖')
+    expect(html).toContain('全船隊清潔窗口總覽')
     expect(html).not.toMatch(/<details[^>]*\sopen/)
   })
 })

@@ -197,6 +197,19 @@ def ship_speed_loss_prediction(
         raise HTTPException(404, f"未知船舶 {ship_id}")
 
 
+@app.get("/api/fleet/speed-loss-windows")
+def fleet_speed_loss_windows(
+    forecast_days: int = Query(180, ge=30, le=365),
+    threshold_pct: float = Query(8.0, ge=1.0, le=30.0),
+    max_wind_scale: float = Query(4.0, ge=0.0, le=12.0),
+):
+    return _svc(app.state).fleet_speed_loss_windows(
+        forecast_days=forecast_days,
+        threshold_pct=threshold_pct,
+        max_wind_scale=max_wind_scale,
+    )
+
+
 @app.post("/api/ship/{ship_id}/maintenance-benefit")
 def ship_maintenance_benefit(ship_id: str, body: MaintenanceBenefitBody):
     if body.execution_delay_days > body.horizon_days:

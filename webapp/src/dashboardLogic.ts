@@ -46,6 +46,13 @@ export function formatUsd(
   return `${sign}US$${absolute}${unit ? `／${unit}` : ''}`
 }
 
+export const DAY_ZERO_UTC_MS = Date.UTC(2021, 0, 1)
+
+/** 全站統一的顯示映射：Day 0 = 2021-01-01。只是排序／日距用的座標，不是真實日曆日期。 */
+export function dayToDisplayDate(day: number) {
+  return new Date(DAY_ZERO_UTC_MS + Math.round(day) * 86_400_000).toISOString().slice(0, 10)
+}
+
 export type MaintenanceActionKind = 'PP' | 'UWI+PP' | 'UWC' | 'UWC+PP' | 'DD' | 'UWI' | 'unknown'
 
 const MAINTENANCE_ACTIONS: Record<Exclude<MaintenanceActionKind, 'unknown'>, { label: string; timelineLabel: string }> = {

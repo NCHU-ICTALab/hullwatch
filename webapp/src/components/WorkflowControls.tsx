@@ -50,7 +50,7 @@ export function FleetScheduleDisclosure({ children }: { children: ReactNode }) {
   return (
     <details className="fleet-schedule-disclosure panel">
       <summary>
-        <span><b>全船隊清潔建議甘特圖</b><small>預設收起 · 點擊展開排程</small></span>
+        <span><b>全船隊清潔窗口總覽</b><small>strict STW／功率預測 · 預設收起 · 點擊展開</small></span>
         <i aria-hidden="true">＋</i>
       </summary>
       {children}

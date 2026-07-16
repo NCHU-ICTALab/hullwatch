@@ -492,3 +492,23 @@ def test_legacy_frontend_does_not_expose_underwater_image_interpretation():
 
     assert "水下判讀" not in html
     assert "/api/inspect" not in html
+
+
+def test_fleet_speed_loss_windows(client):
+    r = client.get("/api/fleet/speed-loss-windows")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["method"] == "per-ship-load-stw-horsepower-ols"
+    assert body["parameters"]["threshold_pct"] == 8.0
+    assert len(body["ships"]) == 4
+    for ship in body["ships"]:
+        assert {"ship_id", "ship_name", "available", "reason", "groups"} <= ship.keys()
+        # all 載況固定回傳兩組，且不含逐點序列（總覽輕量 payload）
+        assert [g["load_condition"] for g in ship["groups"]] == ["laden", "ballast"]
+        for group in ship["groups"]:
+            assert {"load_label", "available", "latest_day", "threshold_crossing"} <= group.keys()
+            assert {"eta_days", "earliest_days", "latest_days"} <= group["threshold_crossing"].keys()
+            assert "history" not in group and "forecast" not in group
+
+    assert client.get("/api/fleet/speed-loss-windows",
+                      params={"threshold_pct": 0}).status_code == 422

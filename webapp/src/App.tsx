@@ -20,12 +20,14 @@ import { shouldSubmitAdvisorComposer } from './advisorComposer'
 import { BrandIdentity } from './components/BrandIdentity'
 import { AttributionSplitBar, DashboardToolsMenu } from './components/DiagnosisWidgets'
 import { EChart } from './components/EChart'
-import { MaintenanceBenefitPanel } from './components/MaintenanceBenefitPanel'
+import { DecisionTimeline } from './components/DecisionTimeline'
+import { FleetWindowsTimeline } from './components/FleetWindowsTimeline'
+import { MaintenanceBenefitPanel, type MaintenanceBenefitSnapshot } from './components/MaintenanceBenefitPanel'
 import { SpeedLossPredictionPanel } from './components/SpeedLossPredictionPanel'
 import { MarkdownContent } from './components/MarkdownContent'
 import { AdvisorSuggestions } from './components/AdvisorSuggestions'
 import { FleetScheduleDisclosure, StatusFilterButtons, WorkflowSteps, type StatusFilterOption } from './components/WorkflowControls'
-import { advisorWidthBounds, ALERT_AUTO_OPEN_ON_ARRIVAL, allocateEventLanes, clampAdvisorWidth, EVENT_LANE_HEIGHT, fleetShipMatchesFilters, formatUsd, fuelHistoryForGrade, GANTT_EVENT_LABEL_CLEARANCE_DAYS, layoutTrendEventMarkers, maintenanceActionLabel, maintenanceActionPresentation, resolveSelectedShipId, scheduleForSelectedShip, speedLossMinimumForStatus } from './dashboardLogic'
+import { advisorWidthBounds, ALERT_AUTO_OPEN_ON_ARRIVAL, allocateEventLanes, clampAdvisorWidth, EVENT_LANE_HEIGHT, fleetShipMatchesFilters, formatUsd, fuelHistoryForGrade, GANTT_EVENT_LABEL_CLEARANCE_DAYS, layoutTrendEventMarkers, maintenanceActionLabel, maintenanceActionPresentation, resolveSelectedShipId, speedLossMinimumForStatus } from './dashboardLogic'
 import type {
   AdvisorResponse,
   AlertsResponse,
@@ -42,6 +44,7 @@ import type {
   ScheduleItem,
   ScheduleResponse,
   ShipDetail,
+  SpeedLossPredictionResponse,
   Status,
 } from './types'
 import './App.css'
@@ -256,7 +259,6 @@ function App() {
               applySlMinimum={setAppliedSlMinimum}
               filterPending={slMinimum !== appliedSlMinimum}
               onSelect={selectShip}
-              schedule={schedule}
             />
           )}
           {view === 'diagnose' && (
@@ -264,18 +266,14 @@ function App() {
               detail={detail}
               log={log}
               onDecide={() => { setView('decide'); setDecisionFocusKey((key) => key + 1) }}
-              recommendation={schedule?.recommendations.find((item) => item.ship_id === selectedShipId)}
               dark={dark}
             />
           )}
-          {view === 'decide' && schedule && fuel && (roi ? (
+          {view === 'decide' && fuel && (roi ? (
             <DecideView
-              schedule={schedule}
               fuel={fuel}
               roi={roi}
               selectedShipId={selectedShipId}
-              onSelect={selectShip}
-              onDecisionShipChange={setSelectedShipId}
               dark={dark}
               focusKey={decisionFocusKey}
             />
@@ -331,7 +329,7 @@ function Header({ view, setView, dark, setDark, alerts, alertOpen, onAlert, onAl
   )
 }
 
-function FleetView({ fleet, fuel, tickerPaused, setTickerPaused, ships, statusFilter, setStatusFilter, slMinimum, setSlMinimum, applySlMinimum, filterPending, onSelect, schedule }: {
+function FleetView({ fleet, fuel, tickerPaused, setTickerPaused, ships, statusFilter, setStatusFilter, slMinimum, setSlMinimum, applySlMinimum, filterPending, onSelect }: {
   fleet: FleetResponse
   fuel: FuelPriceResponse | null
   tickerPaused: boolean
@@ -344,7 +342,6 @@ function FleetView({ fleet, fuel, tickerPaused, setTickerPaused, ships, statusFi
   applySlMinimum: (value: number) => void
   filterPending: boolean
   onSelect: (shipId: string) => void
-  schedule: ScheduleResponse | null
 }) {
   const resultsContentRef = useRef<HTMLDivElement>(null)
   const [reservedResultsHeight, setReservedResultsHeight] = useState<number | null>(null)
@@ -397,7 +394,7 @@ function FleetView({ fleet, fuel, tickerPaused, setTickerPaused, ships, statusFi
         <Metric label="每月超額成本" value={formatUsd(fleet.stats.monthly_excess_cost_usd, '30 天')} tone="red" compact />
         <Metric label="每月超額碳排" value={number.format(fleet.stats.monthly_excess_co2_tons)} unit="tCO₂" />
       </div>
-      {schedule && <FleetScheduleDisclosure><ScheduleGantt schedule={schedule} onOpen={(item) => onSelect(item.ship_id)} onSelect={(shipId) => onSelect(shipId)} /></FleetScheduleDisclosure>}
+      <FleetScheduleDisclosure><FleetWindowsTimeline onSelect={(shipId) => onSelect(shipId)} /></FleetScheduleDisclosure>
       <div className="filter-bar panel">
         <fieldset aria-describedby="fleet-status-policy"><legend>狀態篩選</legend><StatusFilterButtons selected={statusFilter} options={statusOptions} onSelect={changeStatus} /></fieldset>
         <DualInput label="Speed Loss 下限" value={slMinimum} min={0} max={15} step={0.5} unit="%" onChange={setSlMinimum} />
@@ -428,11 +425,10 @@ function ShipCard({ ship, onSelect }: { ship: FleetShip; onSelect: (shipId: stri
   )
 }
 
-function DiagnoseView({ detail, log, onDecide, recommendation, dark }: {
+function DiagnoseView({ detail, log, onDecide, dark }: {
   detail: ShipDetail | null
   log: LogEntry[]
   onDecide: () => void
-  recommendation?: ScheduleItem
   dark: boolean
 }) {
   const eventMarkers = useMemo(() => detail ? layoutTrendEventMarkers(
@@ -461,7 +457,6 @@ function DiagnoseView({ detail, log, onDecide, recommendation, dark }: {
 
   if (!detail) return <InlineLoading label="載入單船日誌" />
   const current = detail.current
-  const nextAction = recommendation ? maintenanceActionLabel(recommendation.action) : '待 ROI 引擎評估'
   const cleanEvent = current.last_clean_event
   const cleanBasis = current.days_since_clean_basis === 'event'
     ? `截至 ${current.as_of}`
@@ -496,7 +491,7 @@ function DiagnoseView({ detail, log, onDecide, recommendation, dark }: {
         <section className="panel delay-panel">
           <div className="panel-heading"><div><span>COST OF DELAY</span><h2>延遲代價</h2></div><AlertTriangle /></div>
           <strong>現在每天多花 {formatUsd(current.excess_cost_per_day, '日')}</strong>
-          <p>若再拖 30 天，依目前成本至少增加 <b>{formatUsd(current.excess_cost_per_day * 30, '30 天')}</b>。建議動作：{nextAction}。</p>
+          <p>若再拖 30 天，依目前成本至少增加 <b>{formatUsd(current.excess_cost_per_day * 30, '30 天')}</b>。到決策頁比較 UWI／PP／UWC／DD 的效益與最佳時點。</p>
           <button className="primary-action" onClick={onDecide}>前往清洗決策 <ChevronRight size={16} /></button>
         </section>
         <section className="panel log-panel wide-panel">
@@ -508,28 +503,21 @@ function DiagnoseView({ detail, log, onDecide, recommendation, dark }: {
   )
 }
 
-function DecideView({ schedule, fuel, roi, selectedShipId, onSelect, onDecisionShipChange, dark, focusKey }: {
-  schedule: ScheduleResponse
+function DecideView({ fuel, roi, selectedShipId, dark, focusKey }: {
   fuel: FuelPriceResponse
   roi: RoiResponse
   selectedShipId: string
-  onSelect: (shipId: string, view?: View) => void
-  onDecisionShipChange: (shipId: string) => void
   dark: boolean
   focusKey: number
 }) {
-  const [selectedRecommendation, setSelectedRecommendation] = useState<ScheduleItem | null>(
-    schedule.recommendations.find((item) => item.ship_id === selectedShipId) ?? null,
-  )
   const [fuelGrade, setFuelGrade] = useState('VLSFO')
+  const [threshold, setThreshold] = useState(8)
+  const [predictionSnapshot, setPredictionSnapshot] = useState<SpeedLossPredictionResponse | null>(null)
+  const [benefitSnapshot, setBenefitSnapshot] = useState<MaintenanceBenefitSnapshot | null>(null)
   useEffect(() => {
-    const recommendation = schedule.recommendations.find((item) => item.ship_id === selectedShipId) ?? null
-    setSelectedRecommendation(recommendation)
-  }, [schedule.recommendations, selectedShipId])
-  const selectedSchedule = useMemo(
-    () => scheduleForSelectedShip(schedule, selectedShipId),
-    [schedule, selectedShipId],
-  )
+    setPredictionSnapshot(null)
+    setBenefitSnapshot(null)
+  }, [selectedShipId])
   const chartText = dark ? '#A7B8C0' : '#4A5A63'
   const chartGrid = dark ? '#2A3B43' : '#D8DFE4'
   const selectedFuelHistory = useMemo(
@@ -546,14 +534,21 @@ function DecideView({ schedule, fuel, roi, selectedShipId, onSelect, onDecisionS
   }), [chartGrid, chartText, fuelGrade, selectedFuelHistory])
   return (
     <section className="page decide-page" aria-labelledby="decide-title">
-      <PageHeading eyebrow="03 / MAINTENANCE DECISION" title="維護排程與經濟決策" subtitle={`未來 ${schedule.horizon_days} 天 · 唯讀系統建議 · STW／功率逐船預測`} badge={`目前船舶 · ${roi.target.ship_name}（${selectedShipId}）`} />
-      <SpeedLossPredictionPanel shipId={selectedShipId} shipName={roi.target.ship_name} dark={dark} />
-      <section className="panel schedule-panel">
-        <div className="panel-heading"><div><span>SELECTED VESSEL WINDOW</span><h2>{roi.target.ship_name} 清潔建議甘特圖</h2></div><span className="model-basis">過去 {schedule.past_days} 天 · 未來 {schedule.future_days} 天</span></div>
-        {selectedRecommendation && <article id="selected-decision" tabIndex={-1} className={`schedule-detail ${focusKey ? 'focus-highlight' : ''}`} aria-live="polite"><div><span>建議詳情 · 唯讀</span><strong>{selectedRecommendation.ship_name} / {maintenanceActionLabel(selectedRecommendation.action)}</strong></div><p>{selectedRecommendation.window_start}–{selectedRecommendation.window_end}，作業成本 {formatUsd(selectedRecommendation.action_cost_usd)}，預期回復 <b>{selectedRecommendation.speed_loss_recovery_pp.toFixed(1)}pp SL</b>、每日省 {selectedRecommendation.daily_fuel_saving_tons.toFixed(2)} 噸、每月省 {formatUsd(selectedRecommendation.monthly_saving_usd, '月')}。若延後，優先遞補：{selectedRecommendation.backfill.ship_name}。{selectedRecommendation.inspection_recommended && <b> 不確定性較高，建議先安排水下檢查。</b>}</p><button onClick={() => onSelect(selectedRecommendation.ship_id, 'diagnose')}>查看單船日誌 <ChevronRight size={15} /></button></article>}
-        <ScheduleGantt schedule={selectedSchedule} selectedShipId={selectedRecommendation?.ship_id} showSorting={false} ariaLabel={`${roi.target.ship_name} 過去 ${schedule.past_days} 天至未來 ${schedule.future_days} 天清潔建議甘特圖`} onOpen={(item) => { setSelectedRecommendation(item); onDecisionShipChange(item.ship_id) }} onSelect={onSelect} />
+      <PageHeading eyebrow="03 / MAINTENANCE DECISION" title="維護排程與經濟決策" subtitle="STW／功率逐船預測 · 效益分岔模擬 · 決策時間軸" badge={`目前船舶 · ${roi.target.ship_name}（${selectedShipId}）`} />
+      <section className="panel decision-threshold-panel">
+        <div className="panel-heading"><div><span>SHARED PARAMETER</span><h2>清底門檻</h2></div><span className="model-basis">預測窗口・效益試算・決策時間軸共用</span></div>
+        <div className="benefit-control decision-threshold-control">
+          <label htmlFor="decide-threshold-range">清底門檻</label>
+          <input id="decide-threshold-range" type="range" min={1} max={30} step={0.5} value={threshold} onChange={(event) => setThreshold(Number(event.target.value))} />
+          <label className="sr-only" htmlFor="decide-threshold-number">清底門檻數值</label>
+          <input id="decide-threshold-number" type="number" min={1} max={30} step={0.5} value={threshold} onChange={(event) => { const next = Number(event.target.value); if (Number.isFinite(next)) setThreshold(Math.min(30, Math.max(1, next))) }} />
+          <span>% Speed Loss</span>
+        </div>
+        <p className="control-hint">Speed Loss 達到此值即視為需要安排清潔。本頁的預測窗口（ETA／範圍）、效益試算的門檻下天數增益與決策時間軸都使用同一個門檻，不會各說各話。</p>
       </section>
-      <MaintenanceBenefitPanel shipId={selectedShipId} shipName={roi.target.ship_name} fuel={fuel} dark={dark} />
+      <SpeedLossPredictionPanel shipId={selectedShipId} shipName={roi.target.ship_name} threshold={threshold} dark={dark} onResult={setPredictionSnapshot} />
+      <MaintenanceBenefitPanel shipId={selectedShipId} shipName={roi.target.ship_name} fuel={fuel} threshold={threshold} dark={dark} onResult={setBenefitSnapshot} />
+      <DecisionTimeline shipName={roi.target.ship_name} threshold={threshold} prediction={predictionSnapshot} benefit={benefitSnapshot} highlight={focusKey > 0} />
       <section className="panel fuel-panel decision-fuel-panel">
         <div className="panel-heading"><div><span>FUEL MARKET</span><h2>市場行情與決策情境價</h2></div><b className={`market-badge market-${fuel.market_status}`}>{fuel.market_status}</b></div>
         <label className="fuel-grade-select">行情油種<select value={fuelGrade} onChange={(event) => setFuelGrade(event.target.value)}>{Object.keys(fuel.history_by_grade).map((grade) => <option key={grade} value={grade}>{grade}</option>)}</select></label>
