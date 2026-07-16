@@ -257,6 +257,7 @@
 - 預測與試算：決策頁只顯示一個主模型的 Speed Loss 預測，不再做視覺模型比較；不使用船速的模型會明確說明並隱藏無效控制。原「清洗日淨節省曲線」改為 PP／UWC／UWC+PP 三種立即清潔效益卡，呈現清潔後 Speed Loss、每日省油、每月節省與回本期，並標示為 clean-baseline 情境推估。
 - 語意審查後補修：日誌排除未來事件；UWI 純檢查不再蓋掉最近實際維護；決策返回按鈕改為「查看單船日誌」。
 - 驗證：Python **84 passed**（1 則既有 Starlette/httpx deprecation warning）；Vitest **36 passed**；`npm run lint` 與 production build 通過。Vite 仍有既有主 bundle >500kB warning（約 961kB／gzip 311kB）。Private data repo **11 passed**、39-file manifest verified；真 artifacts smoke 顯示風級、資料截至日、清潔基準與三方案欄位皆可讀。
+
 ## 2026-07-16 第十九批：逐船／載況 STW－功率 Speed Loss 預測
 
 - 首頁內容大標題由「船隊健康總覽」精確改為「Speed Loss 總覽」。
@@ -268,3 +269,17 @@
 - 部署 readiness：`/api/health` 分開揭露 artifacts 與 strict normalized raw 是否 ready、列數及缺欄，避免 artifacts-only 部署靜默顯示所有 Speed Loss 預測 unavailable。
 - 修復決策頁白屏：tree-shaken ECharts 補註冊 `ScatterChart`／`DataZoomComponent`；共用 wrapper 將 instance lifecycle 與 option 更新分離，避免 `setOption` 失敗後 StrictMode 重複 init。runtime harness 由缺模組紅燈轉為 `DECISION_CHART_OK`。
 - 真資料 smoke：15 船共 30 個 laden／ballast groups，其中 20 組 available；S1、S4、S21 等最新非尾端清洗後不足 3 bins 的 10 組明確 unavailable，不回退舊趨勢。回應可 JSON strict serialize；FastAPI 正常 200、參數越界 422、未知船 404。驗證為 Python **84 passed**、Vitest **36 passed**、oxlint／production build 綠；private tests **11 passed**、Wiki 34 pages／10-of-10 evaluation、39-file manifest 綠。Vite 大 chunk warning與 in-app Browser 無 backend 的人工視覺 QA 待辦仍存在。
+
+## 2026-07-16 第二十批：真實事件證據與六動作養護分岔
+
+- 資料接縫：`vt_fd.csv` 共 21,282 列／15 船；`maintenance.csv` 共 77 筆原始事件（UWI 12、PP 11、UWI+PP 31、UWC 6、UWC+PP 7、DD 10）。ingestion 額外保留 direct `ME_CONSUMPTION`、獨立原始 `MID_DRAFT`、`event_day`、原始動作、source event id、船殼／螺旋槳檢查欄位；legacy 複合事件仍拆列，但效益證據依 source id 去重。
+- 純計算模組：新增 `maintenance_benefit.py`。每船套 STW 6–25、HP 正數且船內 2–98%、風級≤5、`HOURS_FULL_SPEED/HOURS_TOTAL≥0.5`；載況依 DISPLACEMENT 中位，缺值只用原始 MID_DRAFT，再缺給 0.5。最早 30% 以 `STW=a+b·HP^(1/3)+c·載況` 擬合，SL 排除 -6～45%，7 日中位後減船內第 5 百分位並將底部雜訊歸零。
+- 觀測證據：每事件前窗 D−60～D−3、後窗 D+7～D+55 各至少 3 bins；`sl_before≥1.5pp` 才估回復。D+7～D+150 slope×30 為觀測復發；API 回傳各動作 recovery／recurrence 中位數與 `n_used/n_total`，但不跨船直接套用。
+- 分岔 API：新增 `POST /api/ship/{id}/maintenance-benefit`，一次接收執行等待、展望天數、門檻、燃油係數／價格／出海比例與六動作 recovery。no-action 採 `dnRate=max(近期趨勢,0.3%/月)`；動作後仍採本船 rate，DD ×0.5。UWI 0% 已驗證與 no-action 點列完全相同，省油、成本、CO₂ 與門檻天數增益均為 0。
+- 效益公式：平均 no-action−branch SL 差 ÷100 × fuel factor × 該船 `HOURS_FULL_SPEED≥20` 的 `ME_CONSUMPTION` 中位 × horizon×sea ratio；預設 3.0、600 USD/MT、0.65，CO₂=燃油×3.114。
+- 決策 UI：以六張原生 checkbox 動作卡取代舊三動作卡，每卡可調 recovery 並顯示實測回復、觀測復發與樣本；右側提供四讀數、歷史／no-action／分岔／門檻／事件圖、圖表資料表與依省油排序的效益表。控制列與 assumptions 均為具獨立 accessible name 的 range+number；loading/error/unavailable 使用 live region，線條另以名稱、線型、符號區分。
+- 排版與日期：市場行情面板改為新效益面板下方整列；NOON_UTC／event_day 保持相對日，市場行情則明列為外部來源真實日曆日期。
+- 語意 review 補修：獨立保留 MID_DRAFT，避免艏艉平均吃水取代規格要求的 0.5 中性 fallback；每次換船或調整情境即清空舊 response，避免重算或錯誤期間顯示上一情境。舊 `/api/roi`、`/api/schedule` 與預測 endpoint 保留相容。
+- 最終驗證：public Python **84 passed**（1 則既有 Starlette/httpx deprecation warning）；maintenance API 200／非法等待 422／未知船 404、77 事件與 UWI exact invariant smoke 綠；Vitest **36 passed**、oxlint、TypeScript/Vite production build 綠。Private **11 passed**、39-file manifest verified、Wiki 34 pages 與 10/10 evaluation 綠。Vite 仍有既有 >500kB chunk warning；in-app Browser 無 backend，人工點擊與截圖仍需本機補做。
+- 人工視覺 QA 後收斂：效益試算只保留 UWI／PP／UWC／DD 四個單一動作卡（組合動作 UWI+PP／UWC+PP 自 `ACTION_ORDER` 移除；後端六動作 API 與歷史複合事件顯示不變），分岔圖移除底部 dataZoom 縮放條並收回 grid 邊距；完整數據仍可由圖表資料表 fallback 取得，a11y 結構（fieldset／live region／非顏色線型區分）不變。Vitest 36、oxlint、build 重跑綠。
+- 第二輪人工 QA 修正：分岔圖改用與 Speed Loss 預測一致的 inside dataZoom（滑鼠滾輪／觸控縮放、`filterMode: none`）；圖例改平鋪自動換行，不再擠成單列翻頁。不作為與各動作分岔統一取樣（每 7 天＋執行日＋末日），axis tooltip 因此會同時列出所有線的數值，不再只吸到不作為。兩組 fieldset 新增 `control-hint` 白話說明各滑桿用途；燃油價格改為下拉選單直接選儀表板市場行情五油種（顯示每噸價格、估算標記與外部行情日曆日），保留「手動輸入」模式沿用原 range+number 雙控件；`MaintenanceBenefitPanel` 新增 `fuel` prop 由決策頁傳入，不重複抓行情。Vitest 36、oxlint、production build、Python 84 全綠。

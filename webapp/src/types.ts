@@ -174,6 +174,86 @@ export interface SpeedLossPredictionResponse {
   groups: SpeedLossPredictionGroup[]
 }
 
+export type MaintenanceAction = 'UWI' | 'PP' | 'UWI+PP' | 'UWC' | 'UWC+PP' | 'DD'
+
+export interface MaintenanceBenefitEvidence {
+  event_type: MaintenanceAction
+  label: string
+  n_total: number
+  n_window_valid: number
+  n_used: number
+  n_recurrence: number
+  observed_recovery_median_pp: number | null
+  observed_recurrence_median_pct_per_month: number | null
+}
+
+export interface MaintenanceBenefitPoint {
+  day: number
+  speed_loss_pct: number
+  phase?: 'waiting' | 'before_action' | 'after_action'
+}
+
+export interface MaintenanceBenefitActionResult {
+  event_type: MaintenanceAction
+  label: string
+  recovery_pct: number
+  branch_rate_pct_per_month: number
+  post_action_speed_loss_pct: number
+  days_below_threshold_gain: number
+  fuel_saving_mt: number
+  cost_saving_usd: number
+  co2_avoided_t: number
+  evidence: MaintenanceBenefitEvidence
+  branch: MaintenanceBenefitPoint[]
+}
+
+export interface MaintenanceBenefitRequest {
+  execution_delay_days: number
+  horizon_days: number
+  threshold_pct: number
+  fuel_factor: number
+  fuel_price_usd_per_mt: number
+  sea_ratio: number
+  recovery_pct: Record<MaintenanceAction, number>
+}
+
+export interface MaintenanceBenefitResponse {
+  ship_id: string
+  method: 'anchored-stw-power-ols-maintenance-branches'
+  time_axis: string
+  day0_note: string
+  available: boolean
+  reason: string | null
+  source_counts: Record<string, number>
+  parameters: MaintenanceBenefitRequest & { minimum_dn_rate_pct_per_month: number }
+  counts?: Record<string, number>
+  baseline?: {
+    sample_fraction: number
+    rows: number
+    intercept: number
+    horse_power_cuberoot_slope: number
+    load_indicator_slope: number
+    displacement_median: number | null
+    draft_median: number | null
+    anchor_p5_pct: number
+  }
+  latest_day?: number
+  now_speed_loss_pct?: number
+  recent_rate_pct_per_month?: number
+  dn_rate_pct_per_month?: number
+  full_speed_daily_consumption_mt?: number
+  evidence: MaintenanceBenefitEvidence[]
+  history: { day: number; speed_loss_pct: number; observations: number }[]
+  past_events: {
+    day: number
+    event_type: MaintenanceAction
+    label: string
+    conditions: Record<string, string | null>
+  }[]
+  no_action: MaintenanceBenefitPoint[]
+  actions: MaintenanceBenefitActionResult[]
+}
+
 export interface RoiResponse {
   target: {
     ship_id: string

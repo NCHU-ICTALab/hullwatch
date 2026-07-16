@@ -7,6 +7,8 @@ import type {
   ForecastResponse,
   FuelPriceResponse,
   LogEntry,
+  MaintenanceBenefitRequest,
+  MaintenanceBenefitResponse,
   ModelInfo,
   NotificationSubscription,
   NotificationSubscriptionsResponse,
@@ -68,6 +70,15 @@ export const api = {
       `/api/ship/${encodeURIComponent(shipId)}/speed-loss-prediction?${query.toString()}`,
     )
   },
+  maintenanceBenefit: (shipId: string, body: MaintenanceBenefitRequest) =>
+    request<MaintenanceBenefitResponse>(
+      `/api/ship/${encodeURIComponent(shipId)}/maintenance-benefit`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      },
+    ),
   roi: (shipId: string, fuelPrice?: number, cleaningCost?: number, recoveryPp?: number) => request<RoiResponse>(
     `/api/roi?ship_id=${encodeURIComponent(shipId)}${fuelPrice ? `&fuel_price=${fuelPrice}` : ''}${cleaningCost ? `&cleaning_cost=${cleaningCost}` : ''}${recoveryPp !== undefined ? `&speed_loss_recovery_pp=${recoveryPp}` : ''}`,
   ),

@@ -12,7 +12,7 @@ import pandas as pd
 from fastapi import FastAPI, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app import config
 from app.llm.advisor import Advisor
@@ -40,6 +40,26 @@ class NotificationSubscriptionBody(BaseModel):
     kind: Literal["digest", "alert"] = "digest"
     destination: str | None = None
     ship_ids: list[str]
+
+
+MaintenanceAction = Literal["UWI", "PP", "UWI+PP", "UWC", "UWC+PP", "DD"]
+
+
+class MaintenanceBenefitBody(BaseModel):
+    execution_delay_days: int = Field(default=0, ge=0, le=365)
+    horizon_days: int = Field(default=180, ge=30, le=730)
+    threshold_pct: float = Field(default=8.0, ge=1.0, le=30.0)
+    fuel_factor: float = Field(default=3.0, ge=0.0, le=10.0)
+    fuel_price_usd_per_mt: float = Field(default=600.0, ge=100.0, le=3000.0)
+    sea_ratio: float = Field(default=0.65, ge=0.0, le=1.0)
+    recovery_pct: dict[MaintenanceAction, float] = Field(default_factory=lambda: {
+        "UWI": 0.0,
+        "PP": 15.0,
+        "UWI+PP": 20.0,
+        "UWC": 45.0,
+        "UWC+PP": 58.0,
+        "DD": 75.0,
+    })
 
 
 @asynccontextmanager
@@ -70,6 +90,8 @@ def _svc(app_state) -> "FleetService":
 @app.get("/api/health")
 def health():
     service = app.state.service
+    if service is not None:
+        service.refresh_maintenance_sources_if_changed()
     return {
         "status": "ok",
         "artifacts_loaded": service is not None,
@@ -81,6 +103,15 @@ def health():
         ),
         "speed_loss_source_missing_columns": (
             service.speed_loss_source_missing_columns if service is not None else []
+        ),
+        "maintenance_benefit_ready": bool(
+            service is not None and service.maintenance_benefit_ready
+        ),
+        "maintenance_source_rows": (
+            int(len(service.maintenance_source)) if service is not None else 0
+        ),
+        "maintenance_benefit_reason": (
+            service.maintenance_benefit_context.reason if service is not None else None
         ),
         "llm_provider": config.LLM_PROVIDER,
         "retriever": config.RETRIEVER,
@@ -161,6 +192,32 @@ def ship_speed_loss_prediction(
             threshold_pct=threshold_pct,
             max_wind_scale=max_wind_scale,
             load_condition=load_condition,
+        )
+    except KeyError:
+        raise HTTPException(404, f"未知船舶 {ship_id}")
+
+
+@app.post("/api/ship/{ship_id}/maintenance-benefit")
+def ship_maintenance_benefit(ship_id: str, body: MaintenanceBenefitBody):
+    if body.execution_delay_days > body.horizon_days:
+        raise HTTPException(422, "執行等待天數不得超過展望天數")
+    invalid_recovery = {
+        action: value
+        for action, value in body.recovery_pct.items()
+        if not 0.0 <= value <= 100.0
+    }
+    if invalid_recovery:
+        raise HTTPException(422, "各動作回復比例必須介於 0–100%")
+    try:
+        return _svc(app.state).maintenance_benefit(
+            ship_id,
+            execution_delay_days=body.execution_delay_days,
+            horizon_days=body.horizon_days,
+            threshold_pct=body.threshold_pct,
+            fuel_factor=body.fuel_factor,
+            fuel_price_usd_per_mt=body.fuel_price_usd_per_mt,
+            sea_ratio=body.sea_ratio,
+            recovery_pct=body.recovery_pct,
         )
     except KeyError:
         raise HTTPException(404, f"未知船舶 {ship_id}")

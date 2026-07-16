@@ -46,6 +46,8 @@ EVENT_TYPE_MAP = {
 EXTRA_NUMERIC = {
     "SPEED_THROUGH_WATER": "stw",
     "AVG_SPEED": "sog",
+    "ME_CONSUMPTION": "me_consumption",
+    "MID_DRAFT": "mid_draft",
     "HORSE_POWER": "horse_power",
     "HOURS_TOTAL": "hours_total",
     "SEA_HEIGHT": "sea_height",
@@ -128,32 +130,67 @@ def load_vt_fd(path: Path) -> tuple[pd.DataFrame, pd.DataFrame]:
 
 
 def load_maintenance(path: Path) -> pd.DataFrame:
-    """→ canonical events（複合事件拆成主事件＋附屬事件兩列）。"""
+    """→ canonical events；保留原始相對日、動作與檢查欄位供效益估計。"""
     mt = pd.read_csv(path)
-    if "event_date" in mt.columns:
-        mt["event_date"] = pd.to_datetime(mt["event_date"])
-    elif "event_day" in mt.columns:
-        mt["event_date"] = EPOCH + pd.to_timedelta(_num(mt["event_day"]), unit="D")
+    if "event_day" in mt.columns:
+        mt["event_day"] = _num(mt["event_day"])
+    elif "event_date" in mt.columns:
+        parsed = pd.to_datetime(mt["event_date"])
+        mt["event_day"] = (parsed - EPOCH).dt.total_seconds() / 86400
     else:
         raise ValueError("maintenance.csv 缺少 event_date 或 event_day")
+    if "event_date" in mt.columns:
+        mt["event_date"] = pd.to_datetime(mt["event_date"])
+    else:
+        mt["event_date"] = EPOCH + pd.to_timedelta(mt["event_day"], unit="D")
+
+    condition_columns = [
+        "propeller_condition",
+        "hull_fouling_type",
+        "hull_coating_condition",
+        "cavitation_found",
+        "draft_fwd_m",
+        "draft_aft_m",
+    ]
     rows = []
-    for _, r in mt.iterrows():
+    for source_event_id, (_, r) in enumerate(mt.iterrows()):
         notes_parts = []
-        for col in ["propeller_condition", "hull_fouling_type", "hull_coating_condition",
-                    "cavitation_found"]:
+        for col in condition_columns[:4]:
             if pd.notna(r.get(col)) and str(r[col]).strip():
-                notes_parts.append(f"{col.split('_')[0]}:{r[col]}")
-        notes = f"{r.event_type}; " + ", ".join(notes_parts)
-        main = EVENT_TYPE_MAP.get(r.event_type, "inspection")
-        rows.append({"ship_id": r.ship_id, "event_date": r.event_date,
-                     "event_type": main, "notes": notes})
-        # 複合事件補第二列，讓拋光/檢查的時間軸完整
-        if r.event_type == "UWC+PP":
-            rows.append({"ship_id": r.ship_id, "event_date": r.event_date,
-                         "event_type": "propeller_polish", "notes": notes})
-        elif r.event_type == "UWI+PP":
-            rows.append({"ship_id": r.ship_id, "event_date": r.event_date,
-                         "event_type": "inspection", "notes": notes})
+                notes_parts.append(f"{col}:{r[col]}")
+        original_event_type = str(r.event_type).upper()
+        notes = f"{original_event_type}; " + ", ".join(notes_parts)
+        metadata = {
+            "source_event_id": source_event_id,
+            "event_day": r.event_day,
+            "original_event_type": original_event_type,
+            **{col: r.get(col) for col in condition_columns},
+        }
+        main = EVENT_TYPE_MAP.get(original_event_type, "inspection")
+        rows.append({
+            "ship_id": r.ship_id,
+            "event_date": r.event_date,
+            "event_type": main,
+            "notes": notes,
+            **metadata,
+        })
+        # 複合事件補第二列供 legacy 時間軸使用；source_event_id 讓效益模型去重。
+        if original_event_type == "UWC+PP":
+            rows.append({
+                "ship_id": r.ship_id,
+                "event_date": r.event_date,
+                "event_type": "propeller_polish",
+                "notes": notes,
+                **metadata,
+            })
+        elif original_event_type == "UWI+PP":
+            rows.append({
+                "ship_id": r.ship_id,
+                "event_date": r.event_date,
+                "event_type": "inspection",
+                "notes": notes,
+                **metadata,
+            })
     return pd.DataFrame(rows)
 
 

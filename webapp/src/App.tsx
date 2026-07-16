@@ -20,6 +20,7 @@ import { shouldSubmitAdvisorComposer } from './advisorComposer'
 import { BrandIdentity } from './components/BrandIdentity'
 import { AttributionSplitBar, DashboardToolsMenu } from './components/DiagnosisWidgets'
 import { EChart } from './components/EChart'
+import { MaintenanceBenefitPanel } from './components/MaintenanceBenefitPanel'
 import { SpeedLossPredictionPanel } from './components/SpeedLossPredictionPanel'
 import { MarkdownContent } from './components/MarkdownContent'
 import { AdvisorSuggestions } from './components/AdvisorSuggestions'
@@ -276,8 +277,6 @@ function App() {
               onSelect={selectShip}
               onDecisionShipChange={setSelectedShipId}
               dark={dark}
-              fuelScenario={fuelScenario}
-              setFuelScenario={setFuelScenario}
               focusKey={decisionFocusKey}
             />
           ) : <InlineLoading label="載入所選船舶的經濟決策" />)}
@@ -509,7 +508,7 @@ function DiagnoseView({ detail, log, onDecide, recommendation, dark }: {
   )
 }
 
-function DecideView({ schedule, fuel, roi, selectedShipId, onSelect, onDecisionShipChange, dark, fuelScenario, setFuelScenario, focusKey }: {
+function DecideView({ schedule, fuel, roi, selectedShipId, onSelect, onDecisionShipChange, dark, focusKey }: {
   schedule: ScheduleResponse
   fuel: FuelPriceResponse
   roi: RoiResponse
@@ -517,29 +516,20 @@ function DecideView({ schedule, fuel, roi, selectedShipId, onSelect, onDecisionS
   onSelect: (shipId: string, view?: View) => void
   onDecisionShipChange: (shipId: string) => void
   dark: boolean
-  fuelScenario: number
-  setFuelScenario: (value: number) => void
   focusKey: number
 }) {
   const [selectedRecommendation, setSelectedRecommendation] = useState<ScheduleItem | null>(
     schedule.recommendations.find((item) => item.ship_id === selectedShipId) ?? null,
   )
-  const [selectedCleaningAction, setSelectedCleaningAction] = useState<ScheduleItem['action'] | null>(
-    selectedRecommendation?.action ?? null,
-  )
   const [fuelGrade, setFuelGrade] = useState('VLSFO')
   useEffect(() => {
     const recommendation = schedule.recommendations.find((item) => item.ship_id === selectedShipId) ?? null
     setSelectedRecommendation(recommendation)
-    setSelectedCleaningAction(recommendation?.action ?? null)
   }, [schedule.recommendations, selectedShipId])
   const selectedSchedule = useMemo(
     () => scheduleForSelectedShip(schedule, selectedShipId),
     [schedule, selectedShipId],
   )
-  const selectedCleaningOption = selectedRecommendation?.action_options.find(
-    (option) => option.action === selectedCleaningAction,
-  ) ?? selectedRecommendation?.action_options[0] ?? null
   const chartText = dark ? '#A7B8C0' : '#4A5A63'
   const chartGrid = dark ? '#2A3B43' : '#D8DFE4'
   const selectedFuelHistory = useMemo(
@@ -563,29 +553,16 @@ function DecideView({ schedule, fuel, roi, selectedShipId, onSelect, onDecisionS
         {selectedRecommendation && <article id="selected-decision" tabIndex={-1} className={`schedule-detail ${focusKey ? 'focus-highlight' : ''}`} aria-live="polite"><div><span>建議詳情 · 唯讀</span><strong>{selectedRecommendation.ship_name} / {maintenanceActionLabel(selectedRecommendation.action)}</strong></div><p>{selectedRecommendation.window_start}–{selectedRecommendation.window_end}，作業成本 {formatUsd(selectedRecommendation.action_cost_usd)}，預期回復 <b>{selectedRecommendation.speed_loss_recovery_pp.toFixed(1)}pp SL</b>、每日省 {selectedRecommendation.daily_fuel_saving_tons.toFixed(2)} 噸、每月省 {formatUsd(selectedRecommendation.monthly_saving_usd, '月')}。若延後，優先遞補：{selectedRecommendation.backfill.ship_name}。{selectedRecommendation.inspection_recommended && <b> 不確定性較高，建議先安排水下檢查。</b>}</p><button onClick={() => onSelect(selectedRecommendation.ship_id, 'diagnose')}>查看單船日誌 <ChevronRight size={15} /></button></article>}
         <ScheduleGantt schedule={selectedSchedule} selectedShipId={selectedRecommendation?.ship_id} showSorting={false} ariaLabel={`${roi.target.ship_name} 過去 ${schedule.past_days} 天至未來 ${schedule.future_days} 天清潔建議甘特圖`} onOpen={(item) => { setSelectedRecommendation(item); onDecisionShipChange(item.ship_id) }} onSelect={onSelect} />
       </section>
-      <div className="decision-grid">
-        <section className="panel cleaning-benefit-panel">
-          <div className="panel-heading"><div><span>IMMEDIATE CLEANING WHAT-IF</span><h2>立即清潔效益試算</h2></div><span className="model-basis">以目前 Speed Loss 與所選油價情境估算</span></div>
-          <p className="benefit-intro">比較螺旋槳拋光、船殼清洗與合併作業；數值是 clean-baseline 情境推估，不是已發生的實測節省。</p>
-          <div className="cleaning-option-grid" role="group" aria-label="選擇立即清潔動作">
-            {(selectedRecommendation?.action_options ?? []).map((option) => {
-              const monthlySaving = option.daily_fuel_saving_tons * fuelScenario * 30
-              return <button type="button" key={option.action} className={selectedCleaningAction === option.action ? 'selected' : ''} aria-pressed={selectedCleaningAction === option.action} onClick={() => setSelectedCleaningAction(option.action)}><span>{maintenanceActionLabel(option.action)}</span><strong>SL −{option.speed_loss_recovery_pp.toFixed(1)}pp</strong><small>每日省油 {option.daily_fuel_saving_tons.toFixed(2)} t</small><small>每月約省 {formatUsd(monthlySaving, '月')}</small></button>
-            })}
-          </div>
-          {selectedCleaningOption && <div className="decision-callout cleaning-benefit-summary"><span>清潔後 Speed Loss<b>{selectedCleaningOption.post_clean_speed_loss_pct.toFixed(1)}%</b></span><span>每日省油<b>{selectedCleaningOption.daily_fuel_saving_tons.toFixed(2)} t/day</b></span><span>每月節省<b>{formatUsd(selectedCleaningOption.daily_fuel_saving_tons * fuelScenario * 30, '月')}</b></span><span>預估回本<b>{selectedCleaningOption.daily_fuel_saving_tons * fuelScenario > 0 ? `${Math.ceil(selectedCleaningOption.action_cost_usd / (selectedCleaningOption.daily_fuel_saving_tons * fuelScenario))} 天` : '—'}</b></span></div>}
-          <div className="scenario-control"><DualInput label="有效油價情境" value={fuelScenario} min={300} max={1500} step={10} unit="US$／mt" onChange={setFuelScenario} /><small>油價只調整金額與回本期；Speed Loss 回復與每日省油量由後端方案引擎提供。</small></div>
-        </section>
-        <section className="panel fuel-panel">
-          <div className="panel-heading"><div><span>FUEL MARKET</span><h2>市場行情與決策情境價</h2></div><b className={`market-badge market-${fuel.market_status}`}>{fuel.market_status}</b></div>
-          <label className="fuel-grade-select">行情油種<select value={fuelGrade} onChange={(event) => setFuelGrade(event.target.value)}>{Object.keys(fuel.history_by_grade).map((grade) => <option key={grade} value={grade}>{grade}</option>)}</select></label>
-          <div className="fuel-cards" role="group" aria-label="選擇行情油種">{fuel.prices.map((price) => <button type="button" key={price.grade} className={price.grade === fuelGrade ? 'selected' : ''} aria-pressed={price.grade === fuelGrade} onClick={() => setFuelGrade(price.grade)}><span>{price.grade}{price.estimated && <em>EST</em>}</span><strong>{formatUsd(price.usd_per_ton, 'mt', 1)}</strong><small>每公噸</small></button>)}</div>
-          {fuel.prices.length === 0 && <div className="market-unavailable"><Fuel /><strong>即時行情暫時無法取得</strong><span>ROI 使用上方明確標示的手動情境價。</span></div>}
-          {selectedFuelHistory.length > 0 && <EChart option={fuelOption} className="fuel-chart" ariaLabel={`${fuelGrade} 近期價格趨勢`} />}
-          <details className="data-fallback"><summary>查看燃油趨勢資料表</summary><div className="table-wrap"><table><thead><tr><th>日期</th><th>{fuelGrade} 價格（USD／mt）</th><th>來源</th></tr></thead><tbody>{selectedFuelHistory.map((point) => <tr key={point.date}><td>{point.date}</td><td>{formatUsd(point.usd_per_ton, 'mt', 2)}</td><td>{point.source}{point.estimated ? '（估算）' : ''}</td></tr>)}</tbody></table></div></details>
-          <p className="source-note">{selectedFuelPrice ? <>Source: <a href={selectedFuelPrice.source_url} target="_blank" rel="noreferrer">{selectedFuelPrice.source}</a>{selectedFuelPrice.estimated ? '（估算）' : ''} · </> : null}{fuel.effective_price.method}</p>
-        </section>
-      </div>
+      <MaintenanceBenefitPanel shipId={selectedShipId} shipName={roi.target.ship_name} fuel={fuel} dark={dark} />
+      <section className="panel fuel-panel decision-fuel-panel">
+        <div className="panel-heading"><div><span>FUEL MARKET</span><h2>市場行情與決策情境價</h2></div><b className={`market-badge market-${fuel.market_status}`}>{fuel.market_status}</b></div>
+        <label className="fuel-grade-select">行情油種<select value={fuelGrade} onChange={(event) => setFuelGrade(event.target.value)}>{Object.keys(fuel.history_by_grade).map((grade) => <option key={grade} value={grade}>{grade}</option>)}</select></label>
+        <div className="fuel-cards" role="group" aria-label="選擇行情油種">{fuel.prices.map((price) => <button type="button" key={price.grade} className={price.grade === fuelGrade ? 'selected' : ''} aria-pressed={price.grade === fuelGrade} onClick={() => setFuelGrade(price.grade)}><span>{price.grade}{price.estimated && <em>EST</em>}</span><strong>{formatUsd(price.usd_per_ton, 'mt', 1)}</strong><small>每公噸</small></button>)}</div>
+        {fuel.prices.length === 0 && <div className="market-unavailable"><Fuel /><strong>即時行情暫時無法取得</strong><span>效益試算使用上方明確標示的手動情境價。</span></div>}
+        {selectedFuelHistory.length > 0 && <EChart option={fuelOption} className="fuel-chart" ariaLabel={`${fuelGrade} 近期價格趨勢`} />}
+        <details className="data-fallback"><summary>查看燃油趨勢資料表</summary><div className="table-wrap"><table><thead><tr><th>日期</th><th>{fuelGrade} 價格（USD／mt）</th><th>來源</th></tr></thead><tbody>{selectedFuelHistory.map((point) => <tr key={point.date}><td>{point.date}</td><td>{formatUsd(point.usd_per_ton, 'mt', 2)}</td><td>{point.source}{point.estimated ? '（估算）' : ''}</td></tr>)}</tbody></table></div></details>
+        <p className="source-note">市場日期是外部來源日曆日期，不使用 NOON_UTC 代理映射。{selectedFuelPrice ? <> Source: <a href={selectedFuelPrice.source_url} target="_blank" rel="noreferrer">{selectedFuelPrice.source}</a>{selectedFuelPrice.estimated ? '（估算）' : ''} · </> : null}{fuel.effective_price.method}</p>
+      </section>
     </section>
   )
 }

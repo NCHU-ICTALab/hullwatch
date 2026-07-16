@@ -282,22 +282,60 @@ th { background: var(--hw-panel-2); color: var(--hw-muted); font-size: 9px; lett
 .prediction-method p { margin: 0; padding: 10px 0; color: var(--hw-muted); line-height: 1.6; }
 .prediction-method b { color: var(--hw-ink); }
 .prediction-method .day-zero-note { grid-column: 1 / -1; padding: 10px 12px; border-left: 4px solid var(--hw-teal); background: var(--hw-teal-soft); }
-.decision-grid { display: grid; grid-template-columns: 1.2fr 1fr; gap: 12px; }
-.benefit-intro { margin: 14px; color: var(--hw-muted); line-height: 1.6; }
-.cleaning-option-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin: 14px; }
-.cleaning-option-grid button { min-width: 0; padding: 13px; border: 1px solid var(--hw-line); background: var(--hw-panel); color: var(--hw-ink); cursor: pointer; text-align: left; }
-.cleaning-option-grid button:hover { border-color: var(--hw-teal); }
-.cleaning-option-grid button.selected { border: 2px solid var(--hw-teal); background: var(--hw-teal-soft); }
-.cleaning-option-grid span, .cleaning-option-grid strong, .cleaning-option-grid small { display: block; }
-.cleaning-option-grid span { min-height: 40px; color: var(--hw-muted); font-weight: 800; }
-.cleaning-option-grid strong { margin: 8px 0; color: var(--hw-teal); font-family: var(--hw-mono); font-size: 18px; }
-.cleaning-option-grid small { margin-top: 4px; color: var(--hw-muted); }
+.benefit-intro { margin: 14px 16px; color: var(--hw-muted); line-height: 1.6; }
+.benefit-controls { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px 18px; margin: 12px 16px; padding: 12px; border: 1px solid var(--hw-line); background: var(--hw-panel-2); }
+.benefit-controls legend { padding: 0 7px; color: var(--hw-teal); font-family: var(--hw-mono); font-size: 10px; font-weight: 850; letter-spacing: .08em; }
+.assumptions-controls { background: var(--hw-teal-soft); }
+.benefit-control { min-width: 0; display: grid; grid-template-columns: minmax(100px, .8fr) minmax(80px, 1fr) 72px auto; align-items: center; gap: 7px; }
+.benefit-control > label:first-child { color: var(--hw-ink); font-size: 12px; font-weight: 800; }
+.benefit-control input[type="range"] { min-width: 70px; accent-color: var(--hw-teal); }
+.benefit-control input[type="number"] { width: 72px; min-height: 36px; padding: 5px 7px; border: 1px solid var(--hw-line); background: var(--hw-panel); color: var(--hw-ink); font-family: var(--hw-mono); }
+.benefit-control > span { color: var(--hw-muted); font-size: 10px; font-weight: 750; white-space: nowrap; }
+.benefit-controls .control-hint { grid-column: 1 / -1; margin: 0 0 2px; color: var(--hw-muted); font-size: 12px; line-height: 1.55; }
+.benefit-control.benefit-price-control { grid-template-columns: minmax(100px, .8fr) minmax(0, 1.6fr) auto; }
+.benefit-price-control select { min-width: 0; min-height: 36px; padding: 5px 7px; border: 1px solid var(--hw-line); background: var(--hw-panel); color: var(--hw-ink); font-family: var(--hw-mono); font-size: 12px; }
+.benefit-price-control > span { white-space: normal; }
+.benefit-workspace { display: grid; grid-template-columns: minmax(320px, .72fr) minmax(0, 1.8fr); gap: 12px; padding: 4px 12px 12px; }
+.benefit-actions, .benefit-results { min-width: 0; border: 1px solid var(--hw-line); background: var(--hw-panel); }
+.benefit-actions > h3, .benefit-results > h3 { margin: 0; padding: 12px 14px; border-bottom: 1px solid var(--hw-line); font-size: 16px; }
+.maintenance-action-list { display: grid; gap: 8px; padding: 10px; }
+.maintenance-action-card { min-width: 0; padding: 11px; border: 1px solid var(--hw-line); background: var(--hw-panel-2); }
+.maintenance-action-card.selected { border: 2px solid var(--hw-teal); background: var(--hw-teal-soft); }
+.maintenance-action-heading { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+.maintenance-action-heading input { width: 18px; height: 18px; accent-color: var(--hw-teal); }
+.maintenance-action-heading label { cursor: pointer; font-weight: 750; }
+.maintenance-action-heading b { display: inline-block; min-width: 56px; color: var(--hw-teal); font-family: var(--hw-mono); }
+.maintenance-action-card .benefit-control { grid-template-columns: 1fr 64px auto; }
+.maintenance-action-card .benefit-control > label:first-child { grid-column: 1 / -1; }
+.maintenance-action-card .benefit-control input[type="number"] { width: 64px; }
+.evidence-list { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 5px; margin: 10px 0 7px; }
+.evidence-list div { min-width: 0; padding: 6px; border-left: 3px solid var(--hw-line); }
+.evidence-list dt { color: var(--hw-muted); font-size: 9px; }
+.evidence-list dd { margin: 3px 0 0; overflow-wrap: anywhere; color: var(--hw-ink); font-family: var(--hw-mono); font-size: 10px; font-weight: 750; }
+.maintenance-action-card > small { display: block; margin-top: 5px; color: var(--hw-muted); line-height: 1.45; }
+.maintenance-action-card .zero-effect-note { color: var(--hw-teal); font-weight: 800; }
+.benefit-request-state { margin: 10px 14px 0; color: var(--hw-muted); font-family: var(--hw-mono); font-size: 10px; }
+.benefit-readings { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; padding: 10px 14px 0; }
+.benefit-readings article { min-width: 0; padding: 9px; border-left: 4px solid var(--hw-teal); background: var(--hw-panel-2); }
+.benefit-readings span, .benefit-readings strong { display: block; }
+.benefit-readings span { color: var(--hw-muted); font-size: 9px; }
+.benefit-readings strong { margin-top: 4px; overflow-wrap: anywhere; font-family: var(--hw-mono); font-size: 14px; }
+.maintenance-branch-chart { height: 470px; }
+.maintenance-chart-data .table-wrap { display: grid; gap: 14px; }
+.maintenance-chart-data table { min-width: 620px; }
+.benefit-comparison-wrap { margin-top: 12px; border-top: 1px solid var(--hw-line); }
+.benefit-comparison-table caption, .maintenance-chart-data caption { padding: 10px 12px; background: var(--hw-panel-2); color: var(--hw-ink); font-weight: 800; text-align: left; }
+.benefit-comparison-table th, .benefit-comparison-table td { white-space: nowrap; }
+.benefit-comparison-table tbody th { text-align: left; }
+.benefit-comparison-table .best-benefit { background: var(--hw-teal-soft); }
+.best-label { display: inline-block; margin-right: 6px; padding: 2px 5px; background: var(--hw-teal); color: white; font-size: 9px; }
+.benefit-empty-selection { margin: 0; padding: 16px; color: var(--hw-muted); text-align: center; }
+.benefit-method { border-top: 1px solid var(--hw-line); }
+.decision-fuel-panel { margin-top: 0; }
 .decision-callout { display: grid; grid-template-columns: repeat(4, 1fr); margin: 14px; border: 1px solid var(--hw-line); }
 .decision-callout span { padding: 10px; border-right: 1px solid var(--hw-line); color: var(--hw-muted); font-size: 10px; }
 .decision-callout span:last-child { border: 0; }
 .decision-callout b { display: block; margin-top: 5px; color: var(--hw-ink); font-family: var(--hw-mono); font-size: 16px; }
-.scenario-control { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; margin: 0 14px 14px; padding: 10px; background: var(--hw-teal-soft); border: 1px solid var(--hw-line); }
-.scenario-control small { max-width: 320px; color: var(--hw-muted); font-size: 11px; }
 .decision-chart { height: 320px; }
 .chart-explanation { margin: 12px 14px 0; color: var(--hw-muted); font-size: 13px; }
 .chart-axis-summary { display: flex; flex-wrap: wrap; gap: 8px 18px; margin: 10px 14px 0; padding: 9px 11px; background: var(--hw-panel-2); border-left: 4px solid var(--hw-teal); }
@@ -502,7 +540,8 @@ th, .schedule-detail span { font-size: 12px; }
   .prediction-kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .diagnose-layout { grid-template-columns: 1fr; }
   .wide-panel, .attribution-panel, .delay-panel { grid-column: 1; }
-  .decision-grid { grid-template-columns: 1fr; }
+  .benefit-workspace { grid-template-columns: 1fr; }
+  .maintenance-action-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
 /* Tablet and desktop: the advisor pushes content and the dashboard responds to its actual width. */
@@ -535,6 +574,12 @@ th, .schedule-detail span { font-size: 12px; }
   .prediction-request-state { margin-left: 0; }
   .prediction-method > div { grid-template-columns: 1fr; }
   .prediction-method .day-zero-note { grid-column: 1; }
+  .benefit-controls { grid-template-columns: 1fr; }
+  .benefit-control { grid-template-columns: minmax(90px, .7fr) minmax(80px, 1fr) 70px auto; }
+  .benefit-workspace { padding: 4px 8px 8px; }
+  .maintenance-action-list { grid-template-columns: 1fr; }
+  .benefit-readings { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .maintenance-branch-chart { height: 400px; }
   .main-chart { height: 340px; }
   .event-list li { grid-template-columns: 32px minmax(0, 1fr); }
   .event-list li strong, .event-list li span { grid-column: 2; }
@@ -545,7 +590,6 @@ th, .schedule-detail span { font-size: 12px; }
   .schedule-detail { grid-template-columns: 1fr; }
   .decision-callout { grid-template-columns: 1fr; }
   .decision-callout span { border-right: 0; border-bottom: 1px solid var(--hw-line); }
-  .cleaning-option-grid { grid-template-columns: 1fr; }
   .fuel-cards { grid-template-columns: repeat(2, 1fr); }
   .fuel-ticker { height: 52px; grid-template-columns: 95px 1fr 46px; }
   .fuel-ticker > strong { font-size: 8px; }
@@ -569,6 +613,10 @@ th, .schedule-detail span { font-size: 12px; }
   .header-tools > * { flex: 1 1 auto; }
   .advisor-trigger { justify-content: center; }
   .panel-heading { align-items: flex-start; flex-direction: column; }
+  .benefit-control { grid-template-columns: minmax(0, 1fr) 65px auto; }
+  .benefit-control > label:first-child { grid-column: 1 / -1; }
+  .benefit-readings, .evidence-list { grid-template-columns: 1fr; }
+  .maintenance-branch-chart { height: 360px; }
 }
 
 /* Mobile: the advisor becomes its own full-width screen instead of overlapping content. */

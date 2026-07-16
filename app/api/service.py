@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from threading import Lock
 
 import numpy as np
 import pandas as pd
@@ -18,6 +19,11 @@ from app.api.model_packages import ModelPackageStore
 from app.api.notifications import NotificationSubscriptionStore
 from app.pipeline.baseline import CleanBaselineModel
 from app.pipeline.features import build_features
+from app.pipeline.maintenance_benefit import (
+    MaintenanceBenefitContext,
+    prepare_maintenance_benefit,
+    simulate_maintenance_benefit,
+)
 from app.pipeline.roi import POST_CLEAN_SL_PCT, RoiParams, days_to_threshold, whatif_curve
 from app.pipeline.speed_loss_prediction import (
     REQUIRED_SOURCE_COLUMNS,
@@ -68,18 +74,71 @@ class FleetService:
         self.notification_subscriptions = NotificationSubscriptionStore(
             d / "notification-subscriptions.json"
         )
-        strict_source_path = d.parent / "raw" / "noon_reports.csv"
-        self.speed_loss_source = (
-            pd.read_csv(strict_source_path)
-            if strict_source_path.exists()
+        self.speed_loss_source_path = d.parent / "raw" / "noon_reports.csv"
+        self.maintenance_source_path = d.parent / "raw" / "events.csv"
+        self._maintenance_source_lock = Lock()
+        self._maintenance_source_signature: tuple[
+            tuple[int, int] | None, tuple[int, int] | None
+        ] | None = None
+        self._load_maintenance_sources()
+
+    @staticmethod
+    def _file_signature(path: Path) -> tuple[int, int] | None:
+        try:
+            stat = path.stat()
+        except FileNotFoundError:
+            return None
+        return stat.st_mtime_ns, stat.st_size
+
+    def _current_maintenance_source_signature(
+        self,
+    ) -> tuple[tuple[int, int] | None, tuple[int, int] | None]:
+        return (
+            self._file_signature(self.speed_loss_source_path),
+            self._file_signature(self.maintenance_source_path),
+        )
+
+    def _load_maintenance_sources(self) -> None:
+        speed_loss_source = (
+            pd.read_csv(self.speed_loss_source_path)
+            if self.speed_loss_source_path.exists()
             else pd.DataFrame()
         )
-        self.speed_loss_source_missing_columns = sorted(
-            REQUIRED_SOURCE_COLUMNS - set(self.speed_loss_source.columns)
+        maintenance_source = (
+            pd.read_csv(self.maintenance_source_path)
+            if self.maintenance_source_path.exists()
+            else pd.DataFrame()
         )
+        missing_columns = sorted(
+            REQUIRED_SOURCE_COLUMNS - set(speed_loss_source.columns)
+        )
+        context = prepare_maintenance_benefit(
+            speed_loss_source, maintenance_source
+        )
+
+        self.speed_loss_source = speed_loss_source
+        self.speed_loss_source_missing_columns = missing_columns
         self.speed_loss_source_ready = bool(
-            len(self.speed_loss_source) and not self.speed_loss_source_missing_columns
+            len(speed_loss_source) and not missing_columns
         )
+        self.maintenance_source = maintenance_source
+        self.maintenance_benefit_context: MaintenanceBenefitContext = context
+        self.maintenance_benefit_ready = context.available
+        self._maintenance_source_signature = (
+            self._current_maintenance_source_signature()
+        )
+
+    def refresh_maintenance_sources_if_changed(self) -> bool:
+        """Reload raw source/context when a pipeline run replaces either CSV."""
+        signature = self._current_maintenance_source_signature()
+        if signature == self._maintenance_source_signature:
+            return False
+        with self._maintenance_source_lock:
+            signature = self._current_maintenance_source_signature()
+            if signature == self._maintenance_source_signature:
+                return False
+            self._load_maintenance_sources()
+        return True
 
     # ---------- model registry ----------
     def model_registry(self) -> dict:
@@ -200,6 +259,7 @@ class FleetService:
         load_condition: LoadCondition = "all",
     ) -> dict:
         """Recompute the strict STW/power OLS prediction from normalized raw."""
+        self.refresh_maintenance_sources_if_changed()
         if self.fleet[self.fleet[schema.SHIP_ID] == ship_id].empty:
             raise KeyError(ship_id)
         return predict_speed_loss(
@@ -209,6 +269,34 @@ class FleetService:
             threshold_pct=threshold_pct,
             max_wind_scale=max_wind_scale,
             load_condition=load_condition,
+        )
+
+    def maintenance_benefit(
+        self,
+        ship_id: str,
+        *,
+        execution_delay_days: int,
+        horizon_days: int,
+        threshold_pct: float,
+        fuel_factor: float,
+        fuel_price_usd_per_mt: float,
+        sea_ratio: float,
+        recovery_pct: dict[str, float],
+    ) -> dict:
+        """Return evidence plus no-action and six physical-prior branches."""
+        self.refresh_maintenance_sources_if_changed()
+        if self.fleet[self.fleet[schema.SHIP_ID] == ship_id].empty:
+            raise KeyError(ship_id)
+        return simulate_maintenance_benefit(
+            self.maintenance_benefit_context,
+            ship_id,
+            execution_delay_days=execution_delay_days,
+            horizon_days=horizon_days,
+            threshold_pct=threshold_pct,
+            fuel_factor=fuel_factor,
+            fuel_price_usd_per_mt=fuel_price_usd_per_mt,
+            sea_ratio=sea_ratio,
+            recovery_pct=recovery_pct,
         )
 
     def register_model_package(self, manifest: str, artifact: bytes) -> dict:
