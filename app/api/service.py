@@ -875,9 +875,13 @@ class FleetService:
 
     def _weekly(self, ship_id: str) -> pd.DataFrame:
         g = self.scored[self.scored[schema.SHIP_ID] == ship_id]
-        w = (g.set_index(schema.REPORT_DATE)
-             .resample("W")[["speed_loss_smooth", "excess_foc_smooth", schema.DAILY_FOC,
-                             "expected_foc"]].mean().reset_index())
+        gi = g.set_index(schema.REPORT_DATE)
+        w = (gi.resample("W")[["speed_loss_smooth", "excess_foc_smooth", schema.DAILY_FOC,
+                               "expected_foc"]].mean().reset_index())
+        # 週點標「該週實際最後一筆日報日」——resample('W') 預設的日曆週日標籤
+        # 會落在資料截止日之後（圖尾超出 as_of，映射座標截至對不上）；
+        # 空週為 NaT，由下游 dropna(speed_loss_smooth) 一併濾除
+        w[schema.REPORT_DATE] = gi.index.to_series().resample("W").max().to_numpy()
         return w
 
     # ---------- ship ----------
