@@ -676,8 +676,14 @@ class FleetService:
                 "完整欄位（stw／horse_power／displacement／me_consumption／mid_draft／hours_total）"
                 "需整列齊備，或整列留空只走基本 6 欄")
         numeric = {c: float(v) for c, v in filled.items()}
-        if not all(np.isfinite(v) and v > 0 for v in numeric.values()):
-            raise ValueError("完整欄位必須是有限正數")
+        if not all(np.isfinite(v) for v in numeric.values()):
+            raise ValueError("完整欄位不得為 NaN 或無限大")
+        # me_consumption 允許 0（真實資料的低活動日就有 0），其餘必須為正
+        if not all(numeric[c] > 0 for c in
+                   ("stw", "horse_power", "displacement", "mid_draft", "hours_total")):
+            raise ValueError("stw／horse_power／displacement／mid_draft／hours_total 必須大於 0")
+        if numeric["me_consumption"] < 0:
+            raise ValueError("me_consumption 不得為負")
         if not 1 <= numeric["stw"] <= 35:
             raise ValueError("STW 必須介於 1–35 kn")
         if numeric["hours_total"] > 24:
