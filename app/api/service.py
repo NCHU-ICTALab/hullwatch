@@ -686,8 +686,8 @@ class FleetService:
             raise ValueError("me_consumption 不得為負")
         if not 1 <= numeric["stw"] <= 35:
             raise ValueError("STW 必須介於 1–35 kn")
-        if numeric["hours_total"] > 24:
-            raise ValueError("hours_total 不得超過 24 小時")
+        if numeric["hours_total"] > 30:  # 正午報表期跨時區可 >24h（真實資料常見 25h）
+            raise ValueError("hours_total 不得超過 30 小時")
         return numeric
 
     def _append_speed_loss_source(self, rows: list[dict]) -> None:
