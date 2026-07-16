@@ -7,7 +7,7 @@ Oi! Hullwatch 是一套船體能效監控與維護決策系統。系統從正午
 ## 主要功能
 
 - 船隊健康總覽與 Speed Loss 風險分級
-- 單船歷史趨勢、維護事件及多模型預測比較
+- 單船歷史趨勢、維護事件與嚴格 Speed Loss 預測（STW×馬力 OLS、重載／壓艙分模、90% 信賴帶）
 - PP、UWC、UWC+PP 與既定乾塢事件排程
 - 清洗成本、回本天數與延後維護代價分析
 - 多油種市場行情與燃油價格情境分析
@@ -32,6 +32,7 @@ Oi! Hullwatch 是一套船體能效監控與維護決策系統。系統從正午
         │
         ▼
 風險分級、趨勢外推與 180 天維護決策
+（＋嚴格 Speed Loss 預測：逐船 STW×馬力 OLS、重載／壓艙分模、90% 信賴帶）
         │
         ├── FastAPI API
         ├── React／Vite Dashboard
@@ -272,7 +273,9 @@ docker run --rm -p 8000:8000 \
 | `HW_BEDROCK_KB_ID` | Bedrock Knowledge Base ID | 空值 |
 | `HW_FUEL_LIVE_ENABLED` | 是否讀取外部燃油行情 | `1` |
 | `HW_RESET_DATASET_URI` | 「資料設定→資料重置」的原始資料來源（`s3://bucket/prefix/` 或本地目錄；空值＝自動偵測） | 空值 |
-| `HW_SES_FROM_EMAIL` | SES 寄件地址；空值表示停用 | 空值 |
+| `HW_EMAIL_QUEUE_URL` | 自建 SQS 寄信中繼 queue URL（**email 主路徑**；設定後一律走中繼，未設退直寄 SES） | 空值 |
+| `HW_EMAIL_QUEUE_FROM` | 中繼寄出的顯示寄件者 | `HullWatch <events@awsug.net>` |
+| `HW_SES_FROM_EMAIL` | SES 直寄寄件地址（中繼未設時的退路；設定中繼時作 ReplyTo）；空值表示停用 | 空值 |
 | `HW_SES_REGION` | SES AWS Region | `us-east-1` |
 | `HW_DISCORD_WEBHOOK_URL` | Discord webhook；空值表示停用 | 空值 |
 | `PORT` | Docker 內 Uvicorn 監聽埠 | `8000` |
@@ -289,6 +292,7 @@ docker run --rm -p 8000:8000 \
 - `GET /api/fleet`
 - `GET /api/ship/{ship_id}`
 - `GET /api/ship/{ship_id}/forecast`
+- `GET /api/ship/{ship_id}/speed-loss-prediction`（嚴格 STW×馬力 OLS 預測：可調預測天數／門檻／風級／載況；時間軸為相對日）
 - `GET /api/schedule`
 - `GET /api/roi`
 - `GET /api/fuel-prices`

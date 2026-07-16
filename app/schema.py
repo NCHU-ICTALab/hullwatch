@@ -17,7 +17,7 @@ REPORT_DATE = "report_date"
 WIND_SCALE = "wind_scale"
 HOURS_FULL_SPEED = "hours_full_speed"
 ME_CONSUMP_VLSFO = "me_fullspeed_consump_vlsfo"
-AVG_SPEED = "avg_speed"          # 節；正午報表多為 SOG（限制已記於 ADR-0001）
+AVG_SPEED = "avg_speed"          # 節；STW 優先、缺值退 SOG（ingest_yangming；SOG 另存欄）
 MEAN_DRAFT = "mean_draft"        # 公尺
 DAILY_FOC = "daily_foc"          # 產出欄位：噸/天
 
